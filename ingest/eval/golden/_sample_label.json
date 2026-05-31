@@ -1,0 +1,72 @@
+{
+  "_comment": "SAMPLE / FIXTURE ONLY — the leading underscore in the filename marks this as a schema demo, not real ground truth. The harness ignores _-prefixed files. Facts below are fabricated-but-realistic. Replace with a real hand-labeled doc via the add-golden-doc skill. Shape is a FLAT instance of the canonical CivicEvent record in ingest/extract/schemas.py (no `event` wrapper); every EXTRACTED field carries a provenance entry with a verbatim source_quote (Rule 3 — Quote the source); synthesized fields (e.g. summary) are exempt — they have no single verbatim source.",
+  "_is_sample": true,
+  "source_id": "nyc_cb_agenda",
+  "source_record_id": "cb-mn07-2024-03-12-item-04",
+  "project_thread_id": null,
+  "title": "ULURP C 240123 ZMM — proposed zoning map amendment, 215 West 96th Street",
+  "action_type": "zoning_map_amendment",
+  "summary": "Community Board 7 (Manhattan) Land Use Committee to hear a proposed zoning map amendment rezoning 215 West 96th Street from R7-2 to R8A to permit a larger residential building.",
+  "event_date": "2024-03-12",
+  "event_time": "18:30",
+  "deadline": null,
+  "address": "215 West 96th Street, New York, NY 10025",
+  "bbl": null,
+  "ulurp_number": "C 240123 ZMM",
+  "ceqr_number": null,
+  "zoning_from": "R7-2",
+  "zoning_to": "R8A",
+  "confidence": 0.92,
+  "status": "accepted",
+  "extras": {},
+  "provenance": {
+    "title": {
+      "value": "ULURP C 240123 ZMM — proposed zoning map amendment, 215 West 96th Street",
+      "source_quote": "Item 4. ULURP No. C 240123 ZMM: Proposed zoning map amendment for the property at 215 West 96th Street.",
+      "page": 2,
+      "char_span": [1340, 1431]
+    },
+    "action_type": {
+      "value": "zoning_map_amendment",
+      "source_quote": "Proposed zoning map amendment for the property at 215 West 96th Street.",
+      "page": 2,
+      "char_span": [1382, 1431]
+    },
+    "address": {
+      "value": "215 West 96th Street, New York, NY 10025",
+      "source_quote": "for the property at 215 West 96th Street.",
+      "page": 2,
+      "char_span": [1390, 1431]
+    },
+    "ulurp_number": {
+      "value": "C 240123 ZMM",
+      "source_quote": "Item 4. ULURP No. C 240123 ZMM:",
+      "page": 2,
+      "char_span": [1340, 1371]
+    },
+    "zoning_from": {
+      "value": "R7-2",
+      "source_quote": "The application seeks to rezone the lot from R7-2 to R8A.",
+      "page": 2,
+      "char_span": [1455, 1511]
+    },
+    "zoning_to": {
+      "value": "R8A",
+      "source_quote": "The application seeks to rezone the lot from R7-2 to R8A.",
+      "page": 2,
+      "char_span": [1455, 1511]
+    },
+    "event_date": {
+      "value": "2024-03-12",
+      "source_quote": "Land Use Committee Meeting — Tuesday, March 12, 2024, 6:30 PM.",
+      "page": 1,
+      "char_span": [210, 271]
+    },
+    "event_time": {
+      "value": "18:30",
+      "source_quote": "Land Use Committee Meeting — Tuesday, March 12, 2024, 6:30 PM.",
+      "page": 1,
+      "char_span": [210, 271]
+    }
+  }
+}

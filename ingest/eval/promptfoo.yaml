@@ -1,0 +1,61 @@
+# promptfoo CI assertions (node/npx CLI — run with `npx promptfoo eval`).
+#
+# Rule 5 (Evals before agents): this is a RUNNABLE Phase 0 stub so the GitHub
+# Action (.github/workflows/evals.yml) is GREEN from day one — even before a real
+# extractor exists. It uses the built-in `echo` provider, so NO API key is needed.
+#
+# The single Phase 0 assertion is JSON-schema conformance: the (echoed) extractor
+# output must validate against the canonical record schema. As the real extractor
+# lands, swap the `echo` provider for the Gemini Flash extractor (EXTRACT_MODEL)
+# and point prompts at ingest/extract/prompts/cb_agenda.v1.md.
+#
+# --- REAL THRESHOLDS (authoritative copy lives in docs/EVAL.md) ----------------
+#   Extraction field-level F1 >= 0.80; BLOCK deploy on >3pp regression.
+#   Geocoding median error < 50m; p95 < 500m (offline eval — see tasks.py).
+#   Hallucination rate <= 1% (every extracted value appears verbatim in source).
+# --- NONDETERMINISM (enable once a real LLM provider is wired) ------------------
+#   Use repeat-3 / require-2-of-3: run each test 3x, require 2 passes. This is
+#   handled with `repeat: 3` below plus a 2-of-3 aggregation once live.
+# -------------------------------------------------------------------------------
+
+description: "NYC Civic ingestion — extractor schema-conformance CI stub (Phase 0)"
+
+providers:
+  # Dummy/echo provider: returns the prompt input verbatim. No API key, no cost.
+  # TODO Phase 0->1: replace with the configured EXTRACT_MODEL (gemini-2.5-flash).
+  - id: echo
+
+prompts:
+  # The "extractor" under test. In Phase 0 we echo a fixed valid JSON record so
+  # the schema-conformance assertion passes and the Action is green.
+  # TODO Phase 0->1: replace with the versioned prompt
+  #   ingest/extract/prompts/cb_agenda.v1.md fed parsed doc text + page images.
+  - |
+    {"source_id":"nyc_cb_agenda","source_record_id":"sample-0001","action_type":"zoning_map_amendment","title":"Sample item","ulurp_number":"C 240123 ZMM","confidence":0.9,"provenance":{},"extras":{}}
+
+# TODO Phase 1: enable repeat-3 / require-2-of-3 once a real (nondeterministic)
+# provider is wired. With `echo` it is deterministic, so repeat is unnecessary.
+# repeat: 3
+
+defaultTest:
+  assert:
+    # Phase 0 assertion: output must be JSON conforming to the canonical record.
+    # Minimal inline schema; TODO Phase 1: generate from ingest/extract/schemas.py
+    # (Pydantic .model_json_schema()) so the eval schema can never drift.
+    - type: is-json
+      value:
+        type: object
+        required: ["source_id", "source_record_id"]
+        properties:
+          source_id: { type: string }
+          source_record_id: { type: string }
+          project_thread_id: { type: ["string", "null"] }
+          action_type: { type: ["string", "null"] }
+          title: { type: ["string", "null"] }
+          ulurp_number: { type: ["string", "null"] }
+          confidence: { type: ["number", "null"] }
+
+tests:
+  # One smoke test in Phase 0. TODO Phase 0: expand to a stratified ~50-case
+  # sample drawn from ingest/eval/golden/ (stratify by visual layout).
+  - description: "schema conformance — echoed sample record validates"

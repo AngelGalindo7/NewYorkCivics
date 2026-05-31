@@ -1,0 +1,17 @@
+# NYC Civic Data Ingestion System — DEV + EVAL dependencies.
+# Installed in the same venv on top of requirements.txt. Runtime deps do NOT live here.
+#   pip install -r requirements.txt -r requirements-dev.txt
+#
+# NOTE: promptfoo is NOT here. promptfoo is a Node CLI installed via package.json / npx
+# (see package.json and .github/workflows/evals.yml), not a Python package. The Python eval
+# layer is Inspect AI (offline trajectories) + Langfuse (tracing); promptfoo owns CI diffs.
+
+# --- Test + lint + types ---
+pytest>=8.0             # test runner (config in pyproject.toml [tool.pytest.ini_options])
+pytest-cov>=5.0         # coverage reporting
+ruff>=0.5               # lint + format (config in pyproject.toml [tool.ruff])
+mypy>=1.10              # static type checking (config in pyproject.toml [tool.mypy])
+
+# --- Evals (Rule 5: evals before agents) ---
+inspect-ai>=0.3.50      # offline agent-trajectory evals (ingest/eval/tasks.py)
+langfuse>=2.0           # production trace storage (Langfuse Hobby, free cloud tier)
