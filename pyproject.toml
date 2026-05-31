@@ -1,0 +1,51 @@
+# pyproject.toml — TOOL CONFIG ONLY (ruff / pytest / mypy) + editable install metadata.
+#
+# By project choice (pip + venv) RUNTIME dependencies live in requirements.txt and dev/eval
+# dependencies live in requirements-dev.txt — NOT here. The [project] table below carries
+# only minimal package metadata so the repo is `pip install -e .`-able; it deliberately
+# omits a `dependencies = [...]` list. Keep dependency edits in the requirements*.txt files.
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nyc-civic-ingest"
+version = "0.0.0"
+description = "NYC Civic Data Ingestion System — fetch, parse, extract, verify, store, and deliver NYC government data as a plain-English neighborhood digest."
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+# Intentionally NO `dependencies` / `optional-dependencies` here — see header note.
+# Runtime deps: requirements.txt   |   Dev + eval deps: requirements-dev.txt
+
+[tool.setuptools.packages.find]
+# The whole project is one top-level package: `ingest` (note: ingest.eval, not builtin eval).
+include = ["ingest*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+# Sensible, conservative starter set; expand as the codebase grows.
+#   E,F  = pyflakes + pycodestyle errors   I = import sorting   UP = pyupgrade
+#   B    = flake8-bugbear (likely bugs)     SIM = simplify       C4 = comprehensions
+select = ["E", "F", "I", "UP", "B", "SIM", "C4"]
+# Stubs raise NotImplementedError and intentionally leave args unused; allow until impl lands.
+ignore = ["B027"]
+
+[tool.ruff.lint.per-file-ignores]
+# __init__.py re-exports are not "unused".
+"__init__.py" = ["F401"]
+
+[tool.pytest.ini_options]
+testpaths = ["ingest"]
+python_files = ["test_*.py", "*_test.py"]
+addopts = "-ra"
+
+[tool.mypy]
+python_version = "3.11"
+# Basic, not strict, while the codebase is stubs. Tighten in Phase 1+.
+warn_unused_ignores = true
+warn_redundant_casts = true
+ignore_missing_imports = true   # many source libs (geosupport, sodapy) ship no type stubs

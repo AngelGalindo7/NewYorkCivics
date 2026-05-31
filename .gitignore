@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+dist/
+build/
+
+# Virtual environment
+.venv/
+
+# Secrets — never commit (.env.example is the committed template)
+.env
+
+# Tooling caches
+.ruff_cache/
+.pytest_cache/
+.mypy_cache/
+
+# Node (promptfoo CLI)
+node_modules/
+.promptfoo/
+
+# Raw fetched documents (re-fetchable, not source-of-truth)
+data/
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+
+# AI / project-context docs — kept on disk for local context, not version-controlled
+CLAUDE.md
+.claude/
+docs/
+
+# NOTE: ingest/eval/golden/ is NOT ignored on purpose.
+# The hand-labeled golden set is a committed, append-only project asset (Rule 5).

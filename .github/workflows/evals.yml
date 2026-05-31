@@ -1,0 +1,73 @@
+# Eval CI — the promptfoo PR check (see docs/EVAL.md "Eval in CI — the workflow").
+#
+# What it does: on every pull request, run promptfoo against ingest/eval/promptfoo.yaml and
+# post a before/after diff as a PR comment. This is the canary for prompt changes.
+#
+# Lifecycle: ACTIVATES IN PHASE 0. In Phase 0 the only assertion is JSON-schema conformance
+# against a DUMMY/echo provider (no real model calls, no API keys), so this job runs green
+# from day one and no-ops gracefully. As real providers + golden cases land, the same job
+# starts enforcing the BLOCK-DEPLOYMENT THRESHOLDS documented in docs/EVAL.md:
+#   - extraction field-level F1 regression > 3pp  -> fail
+#   - geocoding median-error regression  > 20m    -> fail
+#   - factual-consistency drop           > 5pp    -> fail
+# Those gates live in docs/EVAL.md (the eval framework owns them); this workflow only runs them.
+
+name: evals
+
+on:
+  pull_request:
+    # Re-run when prompts, eval config, golden labels, or this workflow change.
+    paths:
+      - "ingest/eval/**"
+      - "ingest/extract/prompts/**"
+      - "package.json"
+      - ".github/workflows/evals.yml"
+
+# Allow the job to post / update a single PR comment with the diff.
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  promptfoo:
+    name: promptfoo PR diff
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      # Guard: only matters for manual/forked runs where the committed promptfoo.yaml might be
+      # absent. On normal PRs the `paths` filter already guarantees it exists; skip cleanly if not.
+      - name: Check for eval config
+        id: cfg
+        run: |
+          if [ -f ingest/eval/promptfoo.yaml ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "No ingest/eval/promptfoo.yaml found — skipping eval (Phase 0 no-op)."
+          fi
+
+      # promptfoo is a Node CLI run via npx (NOT a pip dep). The official action posts the
+      # before/after diff as a PR comment and caches responses so unchanged tests don't re-bill.
+      # In Phase 0 it targets the dummy/echo provider, so it needs no model API keys.
+      - name: Run promptfoo eval (Phase 0 = dummy provider, JSON-schema conformance only)
+        if: steps.cfg.outputs.present == 'true'
+        uses: promptfoo/promptfoo-action@v1
+        with:
+          config: ingest/eval/promptfoo.yaml
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          # no-share keeps eval data off the hosted dashboard — data stays vendor-neutral/local.
+          no-share: true
+        env:
+          # Model defaults (Rule 6 — model name behind a config flag, never hard-coded).
+          # Real keys are added as repo secrets only when the dummy provider is replaced.
+          EXTRACT_MODEL: gemini-2.5-flash
+          JUDGE_MODEL: claude-haiku-4-5
+          # TODO Phase 0+: wire GOOGLE_API_KEY / ANTHROPIC_API_KEY from GitHub secrets once
+          # promptfoo.yaml swaps the dummy/echo provider for the real extractor + judge.

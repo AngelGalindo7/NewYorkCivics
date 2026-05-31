@@ -1,0 +1,11 @@
+{
+  "name": "nyc-civic-ingest",
+  "private": true,
+  "description": "Node dev tooling for the NYC Civic Data Ingestion System. Sole purpose: the promptfoo eval CLI (CI diffs / PR comments). All runtime + Python eval deps live in requirements*.txt. promptfoo (MIT) was acquired by OpenAI in 2026 but remains open source; keep eval DATA vendor-neutral (JSONL) so we are never locked in. NOT a pip dependency.",
+  "scripts": {
+    "eval": "promptfoo eval -c ingest/eval/promptfoo.yaml"
+  },
+  "devDependencies": {
+    "promptfoo": "^0.121.0"
+  }
+}

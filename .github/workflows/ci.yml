@@ -1,0 +1,36 @@
+# Lint + type + smoke-test CI. Complements (does not duplicate) evals.yml, which only
+# runs the promptfoo PR diff on prompt/eval changes. This runs on every push and PR so
+# the configured ruff / mypy / pytest actually run. Python 3.12 baseline for full wheel
+# availability (see the README 3.14 caveat).
+
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  lint-type-test:
+    name: ruff + mypy + pytest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install package + tooling
+        # pydantic is the one import-time runtime dep (the canonical schema); the rest
+        # of the heavy runtime wheels are intentionally skipped — mypy uses
+        # ignore_missing_imports and the smoke test proves import-safety without them.
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e . pydantic
+          pip install ruff mypy pytest
+      - name: Ruff lint
+        run: ruff check .
+      - name: Ruff format check
+        run: ruff format --check .
+      - name: Mypy
+        run: mypy ingest
+      - name: Pytest (smoke)
+        run: pytest
