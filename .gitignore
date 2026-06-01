@@ -23,6 +23,9 @@ node_modules/
 # Raw fetched documents (re-fetchable, not source-of-truth)
 data/
 
+# Generated digest artifacts (v1 file sink — regenerated each run)
+out/
+
 # Logs
 *.log
 
