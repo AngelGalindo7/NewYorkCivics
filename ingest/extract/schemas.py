@@ -69,6 +69,46 @@ class Provenance(BaseModel):
     # grounding eval distinguishes verbatim hits from plausible paraphrases.
 
 
+class Citation(BaseModel):
+    """A verifiable link back to the authoritative source RECORD (sibling of Rule 3).
+
+    ``Provenance`` quotes the verbatim *sentence* a fact came from — the right tool
+    for dirty, extracted inputs. ``Citation`` links the authoritative *record* a fact
+    came from — the right tool for clean structured feeds, which have no prose to quote.
+    Together they make every asserted fact independently checkable by a reader: the
+    digest can render "see the source" next to each claim.
+
+    Two ``kind`` tiers carry different guarantees:
+      - ``data_source``: the exact, machine-verifiable row backing the claim (e.g. the
+        Socrata API row filtered by primary key). Pins the precise record used.
+      - ``official_lookup``: a human-facing official page for the same subject (e.g. a
+        city building-profile page) — friendlier to a resident, but not row-exact.
+
+    ``verifies`` states HOW STRONGLY the link confirms the claim, so the digest never
+    overclaims (e.g. a homepage search tool is not the same as the exact record):
+      - ``exact_record``   : THIS row/permit/violation (strongest).
+      - ``exact_building`` : the specific building's official page.
+      - ``search``         : an official search tool, not pre-filled (weakest).
+
+    At scale these URLs are pure functions of (source_id, source_record_id, bbl) — the
+    Phase-1 target is to STORE identity and resolve URLs at render time via an injected
+    city resolver, not to materialize URL strings onto every stored record (no dup, no
+    stale links). They are materialized here only because there is no DB yet.
+    """
+
+    kind: str = Field(description="'data_source' (exact row) | 'official_lookup' (human page).")
+    verifies: str = Field(
+        default="exact_record",
+        description="exact_record | exact_building | search — see class docstring.",
+    )
+    label: str = Field(description="Reader-facing link text, e.g. 'HPD violation #12345'.")
+    url: str = Field(description="Resolvable URL to the authoritative record or lookup page.")
+    retrieved_at: datetime | None = Field(
+        default=None,
+        description="When the linked record was fetched; structured feeds mutate, so pin the time.",
+    )
+
+
 class CivicEvent(BaseModel):
     """Canonical clean-record shape for one extracted civic event (CITY-AGNOSTIC).
 
@@ -153,6 +193,15 @@ class CivicEvent(BaseModel):
     provenance: dict[str, Provenance] = Field(
         default_factory=dict,
         description="Map of field name -> Provenance. Every asserted fact should have an entry.",
+    )
+
+    # --- Citations (verifiable links back to the authoritative record) ---
+    # NOT a stored column at scale (ADR 0008): the durable record keeps identity
+    # (source_id, source_record_id, bbl) + reference ids, and URLs are resolved on demand
+    # at digest render via an injected city resolver. Materialized here only pre-DB.
+    citations: list[Citation] = Field(
+        default_factory=list,
+        description="Verifiable links to the source record(s); rendered next to a claim.",
     )
 
     # --- Per-source extras (Rule 7 — JSONB, no migration to add a city/source) ---

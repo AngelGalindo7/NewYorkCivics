@@ -48,8 +48,18 @@ def score(
     Returns the weighted sum. Keep it linear and debuggable — no ML.
     """
     weights = weights or DEFAULT_WEIGHTS
-    raise NotImplementedError(
-        "Phase 2: return w_d*proximity + w_t*recency + w_dl*deadline_urgency + "
-        "w_m*magnitude + w_n*novelty + w_cat*category_weight using the supplied "
-        "weights. Signals must be normalized to [0,1] by the caller."
+    # Map each weight key (w_d, w_t, ...) to its signal name; missing signals read as 0
+    # so a caller may supply only the signals it can compute (Rule 2 — never guess a value).
+    signal_for = {
+        "w_d": "proximity",
+        "w_t": "recency",
+        "w_dl": "deadline_urgency",
+        "w_m": "magnitude",
+        "w_n": "novelty",
+        "w_cat": "category_weight",
+    }
+    return sum(
+        weight * signals.get(signal_for[key], 0.0)
+        for key, weight in weights.items()
+        if key in signal_for
     )
