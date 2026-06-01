@@ -15,7 +15,10 @@ This is a contract stub. The field set mirrors ``.env.example``.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
+
+from dotenv import load_dotenv
 
 
 @dataclass(frozen=True)
@@ -53,7 +56,25 @@ def get_settings() -> Settings:
     ``Settings`` from ``os.environ`` with the documented defaults. Never hard-code a
     model name elsewhere — read it from here (Rule 6). No secret is ever logged.
     """
-    raise NotImplementedError(
-        "Phase 0: load_dotenv() once, then populate Settings from os.environ "
-        "(EXTRACT_MODEL, JUDGE_MODEL, DATABASE_URL, ... — see .env.example)."
+    load_dotenv()  # idempotent; no-op if .env is absent
+
+    def _opt(key: str) -> str | None:
+        # Treat empty strings as unset so blank .env lines don't mask defaults.
+        value = os.environ.get(key)
+        return value or None
+
+    return Settings(
+        extract_model=os.environ.get("EXTRACT_MODEL", "gemini-2.5-flash"),
+        judge_model=os.environ.get("JUDGE_MODEL", "claude-haiku-4-5"),
+        google_api_key=_opt("GOOGLE_API_KEY"),
+        anthropic_api_key=_opt("ANTHROPIC_API_KEY"),
+        openai_api_key=_opt("OPENAI_API_KEY"),
+        database_url=_opt("DATABASE_URL"),
+        socrata_app_token=_opt("SOCRATA_APP_TOKEN"),
+        geosupport_geofiles=_opt("GEOSUPPORT_GEOFILES"),
+        geosupport_gs_library_path=_opt("GEOSUPPORT_GS_LIBRARY_PATH"),
+        email_provider=_opt("EMAIL_PROVIDER"),
+        langfuse_public_key=_opt("LANGFUSE_PUBLIC_KEY"),
+        langfuse_secret_key=_opt("LANGFUSE_SECRET_KEY"),
+        langfuse_host=os.environ.get("LANGFUSE_HOST", "https://cloud.langfuse.com"),
     )
