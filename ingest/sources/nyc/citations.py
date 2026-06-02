@@ -44,9 +44,19 @@ _HPD_ONLINE = "https://hpdonline.nyc.gov/hpdonline/"
 
 
 # Hosts we are willing to emit links to (the audit rejects anything else).
-KNOWN_HOSTS = ("data.cityofnewyork.us", "a810-bisweb.nyc.gov", "hpdonline.nyc.gov")
-# Socrata datasets this connector knows; the audit flags an unregistered id.
-KNOWN_DATASETS = ("wvxf-dwi5", "ipu4-2q9a")
+KNOWN_HOSTS = (
+    "data.cityofnewyork.us",
+    "a810-bisweb.nyc.gov",
+    "hpdonline.nyc.gov",
+    "zap.planning.nyc.gov",
+)
+# Socrata datasets this module knows; the audit flags an unregistered id.
+KNOWN_DATASETS = (
+    "wvxf-dwi5",   # HPD housing-maintenance violations
+    "ipu4-2q9a",   # DOB permit issuance
+    "hgx4-8ukb",   # ZAP land-use projects (ulurp_numbers, project_brief, public_status)
+    "2iga-a6mk",   # ZAP project-BBL rows (project_id -> bbl, many-to-many)
+)
 
 
 def socrata_row(
@@ -100,6 +110,27 @@ def hpd_online(*, retrieved_at: datetime | None = None) -> Citation:
         verifies="search",  # homepage search tool, not pre-filled — be honest about it
         label="Search this building on HPD Online",
         url=_HPD_ONLINE,
+        retrieved_at=retrieved_at,
+    )
+
+
+_ZAP_PORTAL = "https://zap.planning.nyc.gov/projects/{project_id}"
+
+
+def zap_project(project_id: str, *, retrieved_at: datetime | None = None) -> Citation:
+    """DCP ZAP project page — the official canonical view of one land-use application.
+
+    ``kind='official_lookup'`` / ``verifies='exact_building'``: the URL is the
+    authoritative city page for this specific project (analogous to a BIS building
+    profile but for a land-use application).  The row-exact ``data_source`` Socrata
+    link (via :func:`socrata_row`) is what pins the precise record; this link gives
+    a resident a human-readable view of the full application history.
+    """
+    return Citation(
+        kind="official_lookup",
+        verifies="exact_building",
+        label=f"ZAP project {project_id} (NYC Planning portal)",
+        url=_ZAP_PORTAL.format(project_id=project_id),
         retrieved_at=retrieved_at,
     )
 
