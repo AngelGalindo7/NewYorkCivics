@@ -133,8 +133,7 @@ def _to_item(event: CivicEvent, band: str, asof: date) -> dict[str, Any]:
         "event_date": event.event_date,
         "score": rank.score(_signals(event, band, asof)),
         "citations": [
-            {"kind": c.kind, "verifies": c.verifies, "label": c.label, "url": c.url}
-            for c in cites
+            {"kind": c.kind, "verifies": c.verifies, "label": c.label, "url": c.url} for c in cites
         ],
     }
 
@@ -227,9 +226,8 @@ def build_digest(
     # Honesty metric: how many items link to the exact record/building vs only a search.
     _exact = ("exact_record", "exact_building")
     exact_verifiable = sum(1 for it in all_items if it["verifies"] in _exact)
-    subject = (
-        f"Your neighborhood this week: {n} update{'s' if n != 1 else ''}"
-        + (f" ({attn} need{'s' if attn == 1 else ''} attention)" if attn else "")
+    subject = f"Your neighborhood this week: {n} update{'s' if n != 1 else ''}" + (
+        f" ({attn} need{'s' if attn == 1 else ''} attention)" if attn else ""
     )
 
     return {
