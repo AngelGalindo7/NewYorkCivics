@@ -47,6 +47,7 @@ def zap_event():
 # Rule 15: source identity                                                     #
 # --------------------------------------------------------------------------- #
 
+
 def test_source_id(zap_event):
     assert zap_event.source_id == SOURCE_ID == "nyc_zap"
 
@@ -70,6 +71,7 @@ def test_bbl_none_is_allowed():
 # Rule 7: project threading                                                    #
 # --------------------------------------------------------------------------- #
 
+
 def test_project_thread_id(zap_event):
     assert zap_event.project_thread_id == "zap:P2024M0042"
 
@@ -77,6 +79,7 @@ def test_project_thread_id(zap_event):
 # --------------------------------------------------------------------------- #
 # ULURP field extraction                                                       #
 # --------------------------------------------------------------------------- #
+
 
 def test_ulurp_number_is_first_value(zap_event):
     """First ULURP promoted to the canonical ulurp_number field."""
@@ -102,6 +105,7 @@ def test_public_status_in_extras(zap_event):
 # Rule 10: confidence routing                                                  #
 # --------------------------------------------------------------------------- #
 
+
 def test_confidence_is_1(zap_event):
     assert zap_event.confidence == 1.0
 
@@ -113,6 +117,7 @@ def test_status_is_accepted(zap_event):
 # --------------------------------------------------------------------------- #
 # Dates                                                                        #
 # --------------------------------------------------------------------------- #
+
 
 def test_event_date_from_certified_referred(zap_event):
     assert zap_event.event_date == date(2024, 3, 15)
@@ -126,6 +131,7 @@ def test_deadline_from_hearing_date(zap_event):
 # --------------------------------------------------------------------------- #
 # Rule 3 + citations                                                           #
 # --------------------------------------------------------------------------- #
+
 
 def test_has_data_source_citation(zap_event):
     """Exact-record Socrata link must be present for machine verification."""
@@ -153,6 +159,7 @@ def test_official_lookup_url_contains_project_id(zap_event):
 # Rule 5: citation audit                                                       #
 # --------------------------------------------------------------------------- #
 
+
 def test_citation_audit_passes(zap_event):
     """Every citation must pass the structural audit (Rule 5, offline check)."""
     problems = [
@@ -167,6 +174,7 @@ def test_citation_audit_passes(zap_event):
 # Rule 2: fail-fast on bad input                                               #
 # --------------------------------------------------------------------------- #
 
+
 def test_missing_project_id_raises():
     with pytest.raises(ValueError, match="missing project_id"):
         _zap_project_to_event({})
@@ -180,6 +188,7 @@ def test_empty_project_id_raises():
 # --------------------------------------------------------------------------- #
 # Content sanity                                                               #
 # --------------------------------------------------------------------------- #
+
 
 def test_title_contains_lead_action(zap_event):
     assert "Zoning Map Amendment" in (zap_event.title or "")
@@ -196,6 +205,7 @@ def test_action_type_is_rezoning(zap_event):
 # --------------------------------------------------------------------------- #
 # Rule 4 seam check: ZAP event drops into the city-agnostic deliver pipeline  #
 # --------------------------------------------------------------------------- #
+
 
 def test_zap_event_matches_on_same_bbl():
     """A ZAP event on the subscriber's BBL lands in the on-your-block band."""
@@ -215,20 +225,12 @@ def test_zap_event_threads_with_hpd_dob_on_same_bbl():
 
     asof = date(2026, 5, 31)
     matched = match_subscriber(SAMPLE_SUBSCRIBER, _sample_events())
-    block_items = [
-        _to_item(ev, BAND_ON_YOUR_BLOCK, asof)
-        for ev in matched[BAND_ON_YOUR_BLOCK]
-    ]
+    block_items = [_to_item(ev, BAND_ON_YOUR_BLOCK, asof) for ev in matched[BAND_ON_YOUR_BLOCK]]
     groups = _group_buildings(block_items)
     # HPD violation + DOB permit + displacement signal + ZAP event all share
     # BBL 1016500030, so they collapse to one building group (not four entries).
     assert len(groups) < len(block_items)
-    rezoning_items = [
-        it
-        for g in groups
-        for it in g["items"]
-        if it["action_type"] == "rezoning"
-    ]
+    rezoning_items = [it for g in groups for it in g["items"] if it["action_type"] == "rezoning"]
     assert rezoning_items, "ZAP event (action_type='rezoning') must appear in the digest"
 
 

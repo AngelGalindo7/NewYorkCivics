@@ -52,10 +52,10 @@ KNOWN_HOSTS = (
 )
 # Socrata datasets this module knows; the audit flags an unregistered id.
 KNOWN_DATASETS = (
-    "wvxf-dwi5",   # HPD housing-maintenance violations
-    "ipu4-2q9a",   # DOB permit issuance
-    "hgx4-8ukb",   # ZAP land-use projects (ulurp_numbers, project_brief, public_status)
-    "2iga-a6mk",   # ZAP project-BBL rows (project_id -> bbl, many-to-many)
+    "wvxf-dwi5",  # HPD housing-maintenance violations
+    "ipu4-2q9a",  # DOB permit issuance
+    "hgx4-8ukb",  # ZAP land-use projects (ulurp_numbers, project_brief, public_status)
+    "2iga-a6mk",  # ZAP project-BBL rows (project_id -> bbl, many-to-many)
 )
 
 

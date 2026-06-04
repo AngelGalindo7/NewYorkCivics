@@ -81,7 +81,7 @@ log = get_logger(__name__)
 SOURCE_ID = "nyc_zap"
 
 # Socrata dataset ids (verifiable row link built from these — see citations.py).
-DATASET_ZAP = "hgx4-8ukb"      # ZAP projects: ulurp_numbers, project_brief, public_status
+DATASET_ZAP = "hgx4-8ukb"  # ZAP projects: ulurp_numbers, project_brief, public_status
 DATASET_ZAP_BBL = "2iga-a6mk"  # project-BBL rows (many-to-many; project_id -> bbl)
 
 SOCRATA_DOMAIN = "data.cityofnewyork.us"
@@ -176,9 +176,7 @@ def _zap_project_to_event(rec: Mapping[str, Any], bbl_value: str | None = None) 
     event_date = _parse_iso(rec.get("certified_referred") or rec.get("certified_date"))
     # Hearing date is the most actionable deadline for a resident.
     hearing_raw = (
-        rec.get("hearing_date")
-        or rec.get("hearing_date_1")
-        or rec.get("public_hearing_date")
+        rec.get("hearing_date") or rec.get("hearing_date_1") or rec.get("public_hearing_date")
     )
     deadline = _parse_iso(str(hearing_raw) if hearing_raw is not None else None)
 
