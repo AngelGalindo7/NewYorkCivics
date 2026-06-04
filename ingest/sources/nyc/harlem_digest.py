@@ -51,8 +51,7 @@ SAMPLE_SUBSCRIBER = {
 }
 
 _RECENT_PERMITS = (
-    "job_type in ('A1','NB','DM') "
-    "AND (issuance_date like '%2025' or issuance_date like '%2026')"
+    "job_type in ('A1','NB','DM') AND (issuance_date like '%2025' or issuance_date like '%2026')"
 )
 
 
