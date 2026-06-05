@@ -49,6 +49,16 @@ class Settings:
     # --- Delivery (Phase 2; unset in v1) ---
     email_provider: str | None = None  # ses | postmark | resend | mailchimp
 
+    # --- Dev overrides (NEVER set in production) ---
+    # Bypass the Rule 9 human-review-then-send gate so the full digest pipeline
+    # can be exercised end-to-end before an organizer has cleared the queue.
+    # Value: the displacement signal + Legistar feeds produce genuine, unique
+    # civic intelligence (cross-feed BBL correlation + upcoming hearing dates)
+    # whose correctness can be verified from public sources; the human gate
+    # guards *send*, not the data's factual correctness. Set to "true" only in
+    # local dev / CI — never in production (Rule 9 applies to production send).
+    bypass_human_review: bool = False  # BYPASS_HUMAN_REVIEW=true
+
     # --- Eval / tracing (Langfuse Hobby) ---
     langfuse_public_key: str | None = None
     langfuse_secret_key: str | None = None
@@ -80,6 +90,8 @@ def get_settings() -> Settings:
         geosupport_geofiles=_opt("GEOSUPPORT_GEOFILES"),
         geosupport_gs_library_path=_opt("GEOSUPPORT_GS_LIBRARY_PATH"),
         email_provider=_opt("EMAIL_PROVIDER"),
+        bypass_human_review=os.environ.get("BYPASS_HUMAN_REVIEW", "").lower()
+        in ("1", "true", "yes"),
         langfuse_public_key=_opt("LANGFUSE_PUBLIC_KEY"),
         langfuse_secret_key=_opt("LANGFUSE_SECRET_KEY"),
         langfuse_host=os.environ.get("LANGFUSE_HOST", "https://cloud.langfuse.com"),

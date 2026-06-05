@@ -3,7 +3,7 @@
 Stage: Deliver (Stage 6). Single responsibility: for one subscriber, return new
 VERIFIED events near them, resolved across the three nested radii.
 
-The three nested radii (resolved per event, see docs/DATA_MODEL.md):
+The three nested radii (resolved per event):
   - On your block:        within 250m of the subscriber.
   - In your neighborhood: within 500m AND in the same community district (CD).
   - In your area:         same ZIP AND same CD.

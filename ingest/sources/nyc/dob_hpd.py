@@ -23,7 +23,7 @@ Rules honored
   BBL is the join key the displacement signal correlates on.
 
 ================================ DECISION RECORD ================================
-v0 PROTOTYPE SCOPE (2026-05-31) — full reasoning in docs/decisions/0007 (local).
+v0 PROTOTYPE SCOPE (2026-05-31) — full reasoning in the project decision log (kept locally).
 
   WHAT: one neighborhood, structured feeds only, no LLM, no DB required to run.
   WHERE: East Harlem = Manhattan Community District 11.

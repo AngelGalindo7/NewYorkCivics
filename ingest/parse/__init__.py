@@ -24,8 +24,6 @@ Rules honored
 - Rule 4 (NYC-specific code in nyc/): nothing here mentions NYC.
 - Rule 6 (model behind a config flag): the vision fallback reads ``EXTRACT_MODEL``.
 
-See [CLAUDE.md](CLAUDE.md), the canon in [../../docs/RULES.md](../../docs/RULES.md),
-and root [../../CLAUDE.md](../../CLAUDE.md).
 """
 
 from __future__ import annotations

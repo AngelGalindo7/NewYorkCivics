@@ -12,7 +12,7 @@ Give residents a fighting chance to know — early, in plain English, and in tim
 
 ## Status
 
-**Greenfield / Phase 0.** We are standing up the foundation: the project skeleton, the rules canon, and — first, before any pipeline is stable — the evaluation harness. Civic data's specific danger is being *confidently wrong* (a hallucinated hearing date is worse than silence), so the eval harness is built first, not last. No data is being ingested or delivered yet. See [docs/ROADMAP.md](docs/ROADMAP.md) for phases and go/no-go gates.
+**Greenfield / Phase 0.** We are standing up the foundation: the project skeleton, the rules canon, and — first, before any pipeline is stable — the evaluation harness. Civic data's specific danger is being *confidently wrong* (a hallucinated hearing date is worse than silence), so the eval harness is built first, not last. No data is being ingested or delivered yet; the project is built in phases, each with a hard go/no-go gate.
 
 ## Quickstart
 
@@ -30,4 +30,4 @@ npm run eval                            # run the eval suite (promptfoo via pack
 
 The system is an assembly line of six stages — **Fetch → Parse → Extract → Normalize & validate → Store → Deliver** — with a permanent evaluation harness running alongside it. The core design choice is *many thin per-source connectors feeding one shared, city-agnostic core*: NYC-specific knowledge stays quarantined in clearly labeled modules, so the same machinery can serve a second city later by copy-and-swap.
 
-For the full picture — the clean/dirty boundary, why we rejected a generic config engine, and how the seams are drawn — see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Engineers and Claude Code sessions should start at [CLAUDE.md](CLAUDE.md), the project map.
+The core design choice is *many thin per-source connectors feeding one shared, city-agnostic core* — NYC-specific knowledge stays quarantined in clearly labeled modules, so a second city is a copy-and-swap rather than a rewrite. New contributors should start with [CONTRIBUTING.md](CONTRIBUTING.md).

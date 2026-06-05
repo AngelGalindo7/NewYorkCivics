@@ -1,0 +1,21 @@
+address,borough,expected_bbl,expected_cd,ref_lat,ref_lon,notes
+"123 East 116th Street, Manhattan",MN,1016500030,111,40.7969,-73.9410,sample building from harlem_digest; BBL confirmed
+"175 East 116th Street, Manhattan",MN,TBD,111,,,East 116th St commercial corridor
+"215 East 116th Street, Manhattan",MN,TBD,111,,,East 116th St
+"320 East 117th Street, Manhattan",MN,TBD,111,,,residential block East Harlem
+"55 East 120th Street, Manhattan",MN,TBD,111,,,East Harlem mid-block
+"1 East 125th Street, Manhattan",MN,TBD,111,,,125th St / MLK Blvd anchor corner
+"163 East 110th Street, Manhattan",MN,TBD,111,,,south end of CD11
+"2321 Third Avenue, Manhattan",MN,TBD,111,,,Third Ave corridor East Harlem
+"1825 Lexington Avenue, Manhattan",MN,TBD,111,,,Lexington Ave East Harlem
+"401 East 118th Street, Manhattan",MN,TBD,111,,,residential East Harlem
+"107 East 115th Street, Manhattan",MN,TBD,111,,,CD11 south boundary area
+"1701 Madison Avenue, Manhattan",MN,TBD,111,,,Madison Ave East Harlem
+"234 East 104th Street, Manhattan",MN,TBD,111,,,south East Harlem
+"550 East 126th Street, Manhattan",MN,TBD,111,,,north East Harlem near Park Ave
+"1979 Second Avenue, Manhattan",MN,TBD,111,,,Second Ave East Harlem
+"400 East 122nd Street, Manhattan",MN,TBD,111,,,East 122nd St residential
+"160 East 111th Street, Manhattan",MN,TBD,111,,,near south boundary CD11
+"2283 Second Avenue, Manhattan",MN,TBD,111,,,Second Ave upper East Harlem
+"1845 Park Avenue, Manhattan",MN,TBD,111,,,Park Ave elevated corridor
+"65 East 129th Street, Manhattan",MN,TBD,111,,,north boundary East Harlem

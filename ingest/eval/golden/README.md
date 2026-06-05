@@ -4,8 +4,7 @@
 corpus. It is the foundation the harness measures against (Rule 5 (Evals before
 agents)). Quality and coverage of *failure categories* matter far more than size.
 
-To add a doc, use the [add-golden-doc](../../../.claude/skills/add-golden-doc/SKILL.md)
-skill — it enforces every convention below.
+Follow every convention below when you add a doc.
 
 ## The labeling convention
 
@@ -34,6 +33,3 @@ skill — it enforces every convention below.
 ## Links
 
 - Schema (the label format): [../../extract/schemas.py](../../extract/schemas.py)
-- Add a doc: [../../../.claude/skills/add-golden-doc/SKILL.md](../../../.claude/skills/add-golden-doc/SKILL.md)
-- Eval framework + thresholds: [../../../docs/EVAL.md](../../../docs/EVAL.md)
-- Rules canon: [../../../docs/RULES.md](../../../docs/RULES.md)

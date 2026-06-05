@@ -28,10 +28,6 @@ modules; the city-agnostic core (Parse, Extract machinery, Eval, Store, Deliver)
 never mentions NYC. To add a second city: copy the connector, swap the lookup,
 reuse the core untouched.
 
-See also
---------
-- Project map / setup / stack: [../CLAUDE.md](../CLAUDE.md)
-- Architecture, clean seams, the boundary: [../docs/ARCHITECTURE.md](../docs/ARCHITECTURE.md)
 """
 
 from __future__ import annotations

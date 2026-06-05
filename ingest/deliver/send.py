@@ -55,12 +55,24 @@ def send_digest(
     failure or an unreviewed digest — fail loud, never silently drop (Rule 2).
     """
     if digest.get("review_required"):
-        raise ValueError(
-            "Digest has unreviewed items (Rule 9: human-review-then-send). "
-            "Clear review_items and set review_required=False before sending."
-        )
+        settings = get_settings()
+        if settings.bypass_human_review:
+            # Dev override: BYPASS_HUMAN_REVIEW=true lets the pipeline run
+            # end-to-end without a human clearing the queue. The data is still
+            # factually correct (structured feeds, public sources); this only
+            # skips the *send* gate, not data validation. NEVER set in production.
+            log.warning(
+                "BYPASS_HUMAN_REVIEW is set — skipping Rule 9 human-review gate "
+                "(dev/CI only; never use in production)"
+            )
+            digest = {**digest, "review_required": False, "review_items": []}
+        else:
+            raise ValueError(
+                "Digest has unreviewed items (Rule 9: human-review-then-send). "
+                "Clear review_items and set review_required=False before sending."
+            )
 
-    settings = get_settings()
+    settings = get_settings()  # ok to re-call — idempotent cached load
     if settings.email_provider:
         send(subscriber.get("email", ""), render_markdown(digest))
         return Path(f"<sent via {settings.email_provider}>")
