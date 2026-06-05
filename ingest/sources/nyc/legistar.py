@@ -39,22 +39,22 @@ try:
 
     _HTTPError = httpx.HTTPError
 except ImportError:
-    httpx = None  # type: ignore[assignment]
+    httpx = None
     _HTTPError = Exception
 
-    def retry(*args: object, **kwargs: object):  # type: ignore[misc]
+    def retry(*args: object, **kwargs: object):
         def _decorator(func):
             return func
 
         return _decorator
 
-    def retry_if_exception_type(*args: object, **kwargs: object) -> None:  # type: ignore[misc]
+    def retry_if_exception_type(*args: object, **kwargs: object) -> None:
         return None
 
-    def stop_after_attempt(*args: object, **kwargs: object) -> None:  # type: ignore[misc]
+    def stop_after_attempt(*args: object, **kwargs: object) -> None:
         return None
 
-    def wait_exponential(*args: object, **kwargs: object) -> None:  # type: ignore[misc]
+    def wait_exponential(*args: object, **kwargs: object) -> None:
         return None
 
 
@@ -95,7 +95,7 @@ _CD_HEARING_KEYWORDS = ("Land Use", "City Council", "Community Board")
 def _get_page(client: httpx.Client, path: str, params: dict[str, Any]) -> list[dict[str, Any]]:
     resp = client.get(f"{_BASE}{path}", params=params)
     resp.raise_for_status()
-    return resp.json()  # type: ignore[return-value]
+    return resp.json()
 
 
 def _get_all(path: str, **params: Any) -> list[dict[str, Any]]:
@@ -212,10 +212,7 @@ def discover_events(since: str | None = None) -> Iterator[CivicEvent]:
         ``status=ACCEPTED`` (structured, Rule 10), ``source_id=SOURCE_ID``
         (Rule 15). No LLM (Rule 1).
     """
-    if since is None:
-        cutoff = datetime.now(UTC).strftime("%Y-%m-%dT00:00:00")
-    else:
-        cutoff = since
+    cutoff = datetime.now(UTC).strftime("%Y-%m-%dT00:00:00") if since is None else since
 
     filter_expr = f"EventDate ge datetime'{cutoff}'"
     try:

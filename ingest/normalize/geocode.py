@@ -112,7 +112,7 @@ def _split_address(address: str) -> tuple[str, str]:
 def _try_import_geosupport() -> Any:
     """Return an initialized Geosupport instance or None if not available."""
     try:
-        from geosupport import Geosupport  # type: ignore[import-untyped]
+        from geosupport import Geosupport
 
         return Geosupport()
     except ImportError:
