@@ -328,6 +328,7 @@ def iter_zap_events(
     scope = f"community_district = '{EAST_HARLEM_CD}'"
 
     project_rows: list[dict[str, Any]] = []
+    bbl_map: dict[str, list[str]] = {}
     offset = 0
     try:
         # --- Phase 1: collect all CD11 projects ---

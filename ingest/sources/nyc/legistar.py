@@ -58,6 +58,7 @@ except ImportError:
         return None
 
 
+from ingest.config import get_settings
 from ingest.extract.schemas import Citation, CivicEvent, RecordStatus
 from ingest.observability import get_logger
 
@@ -99,6 +100,11 @@ def _get_page(client: httpx.Client, path: str, params: dict[str, Any]) -> list[d
 
 def _get_all(path: str, **params: Any) -> list[dict[str, Any]]:
     """Paginate a Legistar OData endpoint and return every row."""
+    if httpx is None:
+        raise RuntimeError("httpx is not installed; install it with: pip install httpx")
+    token = get_settings().legistar_token
+    if token:
+        params = {"token": token, **params}
     rows: list[dict[str, Any]] = []
     skip = 0
     with httpx.Client(timeout=_TIMEOUT) as client:
@@ -289,7 +295,10 @@ def fetch_roll_call(matter_id: str) -> CivicEvent:
     try:
         items = _get_all(
             "/EventItems",
-            **{"$filter": f"EventItemMatterId eq {matter_id}"},
+            **{
+                "$filter": f"EventItemMatterId eq {matter_id}",
+                "$orderby": "EventItemId desc",
+            },
         )
     except _HTTPError as exc:
         raise RuntimeError(
@@ -299,8 +308,8 @@ def fetch_roll_call(matter_id: str) -> CivicEvent:
     if not items:
         raise ValueError(f"No EventItems found for matter_id={matter_id!r}")
 
-    # Most recent event item for this matter.
-    item = items[-1]
+    # Most recent event item first (ordered by EventItemId desc).
+    item = items[0]
     item_id = item["EventItemId"]
     event_id = item.get("EventItemEventId", "")
 

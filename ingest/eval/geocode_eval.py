@@ -29,26 +29,17 @@ from __future__ import annotations
 import argparse
 import csv
 import json
-import math
 import sys
 from pathlib import Path
 from typing import Any
 
+from ingest.deliver.match import _haversine_m
 from ingest.normalize.geocode import geocode
 from ingest.observability import get_logger
 
 log = get_logger(__name__)
 
 _FIXTURE = Path(__file__).parent / "fixtures" / "geocode_addresses.csv"
-_EARTH_M = 6_371_000.0
-
-
-def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
-    p1, p2 = math.radians(lat1), math.radians(lat2)
-    dlat = math.radians(lat2 - lat1)
-    dlon = math.radians(lon2 - lon1)
-    a = math.sin(dlat / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dlon / 2) ** 2
-    return 2 * _EARTH_M * math.asin(math.sqrt(a))
 
 
 def _percentile(values: list[float], p: float) -> float:
@@ -136,6 +127,14 @@ def run_eval(csv_path: Path) -> dict[str, Any]:
         gate_pass = False
     if report["p95_error_m"] is not None and report["p95_error_m"] >= 500:
         gate_pass = False
+    # ok_rate floor: if GeoSupport IS configured (at least one failure reason is not
+    # "not configured") but ok_count is 0, the binary is broken — fail the gate.
+    if ok_count == 0 and total > 0:
+        geosupport_configured = any(
+            "not configured" not in (f.get("reason") or "") for f in failures if "reason" in f
+        )
+        if geosupport_configured:
+            gate_pass = False
     report["phase1_gate_pass"] = gate_pass
 
     return report
@@ -168,7 +167,7 @@ def main(argv: list[str] | None = None) -> None:
     else:
         print("spatial_error   : n/a (no ref coords in fixture yet — add ref_lat/ref_lon)")
 
-    gate = "✓ PASS" if report["phase1_gate_pass"] else "✗ FAIL"
+    gate = "PASS" if report["phase1_gate_pass"] else "FAIL"
     print(f"\nPhase 1 gate    : {gate}")
 
     if report["failures"]:

@@ -119,8 +119,10 @@ def _try_import_geosupport() -> Any:
         log.debug("geosupport package not installed; geocoding unavailable")
         return None
     except Exception as exc:
-        # Catches missing binaries / unset GEOFILES env at init time.
-        log.debug("GeoSupport init failed (binaries/env not configured): %s", exc)
+        # Catches missing binaries / unset GEOFILES env at init time (OSError, etc.).
+        # This is NOT a normal "optional dep absent" case — the package installed but
+        # the binaries or env are broken, so warn rather than silently swallowing it.
+        log.warning("GeoSupport init failed (binaries/env not configured): %s", exc)
         return None
 
 

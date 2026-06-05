@@ -49,6 +49,9 @@ class Settings:
     # --- Delivery (Phase 2; unset in v1) ---
     email_provider: str | None = None  # ses | postmark | resend | mailchimp
 
+    # --- External APIs ---
+    legistar_token: str | None = None  # LEGISTAR_TOKEN — required for webapi.legistar.com
+
     # --- Dev overrides (NEVER set in production) ---
     # Bypass the Rule 9 human-review-then-send gate so the full digest pipeline
     # can be exercised end-to-end before an organizer has cleared the queue.
@@ -90,6 +93,7 @@ def get_settings() -> Settings:
         geosupport_geofiles=_opt("GEOSUPPORT_GEOFILES"),
         geosupport_gs_library_path=_opt("GEOSUPPORT_GS_LIBRARY_PATH"),
         email_provider=_opt("EMAIL_PROVIDER"),
+        legistar_token=_opt("LEGISTAR_TOKEN"),
         bypass_human_review=os.environ.get("BYPASS_HUMAN_REVIEW", "").lower()
         in ("1", "true", "yes"),
         langfuse_public_key=_opt("LANGFUSE_PUBLIC_KEY"),
