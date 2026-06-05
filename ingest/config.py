@@ -18,7 +18,13 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
-from dotenv import load_dotenv
+try:
+    from dotenv import load_dotenv
+except ImportError:  # import-safety (test_smoke): real env vars work without python-dotenv
+
+    def load_dotenv(*args: object, **kwargs: object) -> bool:
+        """No-op fallback when python-dotenv isn't installed; .env is simply not loaded."""
+        return False
 
 
 @dataclass(frozen=True)

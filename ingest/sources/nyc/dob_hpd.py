@@ -54,21 +54,51 @@ from collections import defaultdict
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
-from typing import Any
-
-from requests.exceptions import RequestException
-from sodapy import Socrata
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
+from typing import TYPE_CHECKING, Any
 
 from ingest.config import get_settings
-from ingest.extract.schemas import CivicEvent, RecordStatus
+from ingest.extract.schemas import Citation, CivicEvent, RecordStatus
 from ingest.observability import get_logger
+from ingest.sources.nyc import citations
+
+if TYPE_CHECKING:
+    from sodapy import Socrata
+
+# Import-safety (test_smoke): only pydantic is an import-time dependency. The HTTP + Socrata +
+# retry stack is needed only at fetch time, so guard it — the module must import with these deps
+# absent (CI installs a minimal env). Real runs install requests/sodapy/tenacity.
+try:
+    from requests.exceptions import RequestException
+    from sodapy import Socrata
+    from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
+except ImportError:
+    RequestException = Exception
+
+    def retry(*args: object, **kwargs: object):
+        def _decorator(func):
+            return func
+
+        return _decorator
+
+    def retry_if_exception_type(*args: object, **kwargs: object) -> None:
+        return None
+
+    def stop_after_attempt(*args: object, **kwargs: object) -> None:
+        return None
+
+    def wait_exponential(*args: object, **kwargs: object) -> None:
+        return None
+
 
 log = get_logger(__name__)
 
 SOURCE_ID_DOB = "nyc_dob_now"
 SOURCE_ID_HPD = "nyc_hpd_violations"
 SOURCE_ID_DISPLACEMENT = "nyc_displacement_signal"
+
+# Socrata dataset ids (the verifiable row link is built from these — see citations.py).
+DATASET_HPD = "wvxf-dwi5"  # HPD housing-maintenance violations
+DATASET_DOB = "ipu4-2q9a"  # DOB permit issuance
 
 SOCRATA_DOMAIN = "data.cityofnewyork.us"
 _PAGE = 1000  # Socrata default cap per request; we paginate by offset.
@@ -182,8 +212,10 @@ def _address(*parts: str | None) -> str | None:
 # Record -> CivicEvent mappers (one per feed)                                  #
 # --------------------------------------------------------------------------- #
 def _hpd_violation_to_event(rec: Mapping[str, Any]) -> CivicEvent:
+    now = datetime.now(UTC)
     vclass = rec.get("class")
     addr = _address(rec.get("housenumber"), rec.get("streetname"))
+    violation_id = str(rec["violationid"])
     severity = (
         "immediately hazardous"
         if vclass == "C"
@@ -193,7 +225,7 @@ def _hpd_violation_to_event(rec: Mapping[str, Any]) -> CivicEvent:
     )
     return CivicEvent(
         source_id=SOURCE_ID_HPD,
-        source_record_id=str(rec["violationid"]),
+        source_record_id=violation_id,
         bbl=bbl(rec.get("boroid"), rec.get("block"), rec.get("lot")),
         action_type="violation",
         title=f"HPD Class {vclass} violation" if vclass else "HPD violation",
@@ -206,6 +238,16 @@ def _hpd_violation_to_event(rec: Mapping[str, Any]) -> CivicEvent:
         deadline=_parse_iso(rec.get("originalcorrectbydate")),
         confidence=1.0,  # structured feed, no extraction (Rule 1)
         status=RecordStatus.ACCEPTED,  # trusted source (Rule 10)
+        citations=[
+            citations.socrata_row(
+                DATASET_HPD,
+                "violationid",
+                violation_id,
+                label=f"HPD violation #{violation_id} (NYC Open Data)",
+                retrieved_at=now,
+            ),
+            citations.hpd_online(retrieved_at=now),
+        ],
         extras={
             "violation_class": vclass,
             "nov_description": rec.get("novdescription"),
@@ -215,22 +257,42 @@ def _hpd_violation_to_event(rec: Mapping[str, Any]) -> CivicEvent:
             "rent_impairing": rec.get("rentimpairing"),
             "nov_issued_date": rec.get("novissueddate"),
         },
-        extracted_at=datetime.now(UTC),
+        extracted_at=now,
     )
 
 
 def _dob_permit_to_event(rec: Mapping[str, Any]) -> CivicEvent:
+    now = datetime.now(UTC)
     job_type = rec.get("job_type")
     addr = _address(rec.get("house__"), rec.get("street_name"))
     boro_digit = _BORO_NAME_TO_DIGIT.get((rec.get("borough") or "").upper())
     label = _JOB_TYPE_LABEL.get(job_type or "", job_type or "permit")
     # permit_si_no is unique per issued permit; fall back to a composite job key.
-    record_id = rec.get("permit_si_no") or "-".join(
-        str(rec.get(k, "")) for k in ("job__", "job_doc___", "permit_sequence__")
+    permit_si_no = rec.get("permit_si_no")
+    record_id = str(
+        permit_si_no
+        or "-".join(str(rec.get(k, "")) for k in ("job__", "job_doc___", "permit_sequence__"))
     )
+    # Only a real permit_si_no yields a resolvable Socrata row link; a composite
+    # fallback id is NOT a filterable column, so we omit the data_source link rather
+    # than emit one that 404s (the BIS building link still lets a reader verify).
+    permit_citations: list[Citation] = []
+    if permit_si_no:
+        permit_citations.append(
+            citations.socrata_row(
+                DATASET_DOB,
+                "permit_si_no",
+                str(permit_si_no),
+                label=f"DOB permit {permit_si_no} (NYC Open Data)",
+                retrieved_at=now,
+            )
+        )
+    bis = citations.bis_property(boro_digit, rec.get("block"), rec.get("lot"), retrieved_at=now)
+    if bis:
+        permit_citations.append(bis)
     return CivicEvent(
         source_id=SOURCE_ID_DOB,
-        source_record_id=str(record_id),
+        source_record_id=record_id,
         bbl=bbl(boro_digit, rec.get("block"), rec.get("lot")),
         action_type="permit",
         title=f"DOB {job_type} permit ({label})" if job_type else "DOB permit",
@@ -249,6 +311,7 @@ def _dob_permit_to_event(rec: Mapping[str, Any]) -> CivicEvent:
         longitude=_to_float(rec.get("gis_longitude")),
         confidence=1.0,
         status=RecordStatus.ACCEPTED,
+        citations=permit_citations,
         extras={
             "job_type": job_type,
             "permit_type": rec.get("permit_type"),
@@ -261,7 +324,7 @@ def _dob_permit_to_event(rec: Mapping[str, Any]) -> CivicEvent:
             "issuance_date": rec.get("issuance_date"),
             "dob_run_date": rec.get("dobrundate"),
         },
-        extracted_at=datetime.now(UTC),
+        extracted_at=now,
     )
 
 
@@ -294,14 +357,14 @@ class SocrataFeed:
 
 HPD_VIOLATIONS_FEED = SocrataFeed(
     source_id=SOURCE_ID_HPD,
-    dataset_id="wvxf-dwi5",
+    dataset_id=DATASET_HPD,
     primary_key=("violationid",),
     mapper=_hpd_violation_to_event,
     scope_where=f"zip in {_sql_in(EAST_HARLEM_ZIPS)}",
 )
 DOB_PERMITS_FEED = SocrataFeed(
     source_id=SOURCE_ID_DOB,
-    dataset_id="ipu4-2q9a",
+    dataset_id=DATASET_DOB,
     primary_key=("permit_si_no",),
     mapper=_dob_permit_to_event,
     scope_where=f"community_board = '{EAST_HARLEM_CB}'",
@@ -417,19 +480,65 @@ def discover_displacement_signals(asof: date | None = None) -> Iterator[CivicEve
         len(flagged),
     )
     for b in flagged:
-        yield _displacement_event(b, violations_by_bbl[b], permits_by_bbl[b])
+        yield _displacement_event(b, violations_by_bbl[b], permits_by_bbl[b], asof)
 
 
 def _displacement_event(
     building_bbl: str,
     violations: list[CivicEvent],
     permits: list[CivicEvent],
+    asof: date,
 ) -> CivicEvent:
+    now = datetime.now(UTC)
     addr = next((v.address for v in violations if v.address), None) or next(
         (p.address for p in permits if p.address), None
     )
     coords = next(((p.latitude, p.longitude) for p in permits if p.latitude), (None, None))
-    sample_permit = permits[0].extras.get("job_type")
+
+    # --- Quantify: the numbers that make the claim checkable (deterministic, Rule 1) ---
+    v_dates = sorted(v.event_date for v in violations if v.event_date)
+    p_dates = sorted(p.event_date for p in permits if p.event_date)
+    deadlines = sorted(v.deadline for v in violations if v.deadline)
+    latest_violation = v_dates[-1] if v_dates else None
+    latest_permit = p_dates[-1] if p_dates else None
+    earliest_due = deadlines[0] if deadlines else None
+    days_overdue = (asof - earliest_due).days if earliest_due and earliest_due < asof else None
+    job_types = sorted({str(jt) for p in permits if (jt := p.extras.get("job_type"))})
+    job_labels = ", ".join(_JOB_TYPE_LABEL.get(jt, jt) for jt in job_types) or "major work"
+    owner = next(
+        (p.extras["owner_business_name"] for p in permits if p.extras.get("owner_business_name")),
+        None,
+    )
+
+    summary = (
+        f"{len(violations)} immediately-hazardous (Class C) HPD violation(s)"
+        + (f", most recent {latest_violation.isoformat()}," if latest_violation else "")
+        + f" AND {len(permits)} major-work permit(s) ({job_labels})"
+        + (f", most recent issued {latest_permit.isoformat()}," if latest_permit else "")
+        + f" on the same building (BBL {building_bbl}) within the signal windows "
+        + f"({DISPLACEMENT_VIOLATION_WINDOW_DAYS}d violations / "
+        + f"{DISPLACEMENT_PERMIT_WINDOW_DAYS}d permits)."
+    )
+    if earliest_due is not None and days_overdue is not None:
+        summary += (
+            f" Earliest violation correct-by deadline ({earliest_due.isoformat()}) "
+            f"is {days_overdue} days overdue."
+        )
+    if owner:
+        summary += f" Permit owner of record: {owner.title()}."
+    summary += " This co-occurrence can precede tenant displacement; verify before acting."
+
+    # --- Verify: aggregate every contributing record's link so a reviewer can check each ---
+    boro_d, block, lot = building_bbl[0], str(int(building_bbl[1:6])), str(int(building_bbl[6:10]))
+    signal_citations: list[Citation] = []
+    bis = citations.bis_property(boro_d, block, lot, retrieved_at=now)
+    if bis:
+        signal_citations.append(bis)
+    signal_citations.append(citations.hpd_online(retrieved_at=now))
+    # The exact row backing each contributing violation/permit (machine-verifiable).
+    for ev in (*violations, *permits):
+        signal_citations.extend(c for c in ev.citations if c.kind == "data_source")
+
     return CivicEvent(
         source_id=SOURCE_ID_DISPLACEMENT,
         source_record_id=building_bbl,
@@ -437,26 +546,31 @@ def _displacement_event(
         project_thread_id=f"bbl:{building_bbl}",  # Rule 7
         action_type="displacement_signal",
         title=f"Possible tenant-displacement risk at {addr or f'BBL {building_bbl}'}",
-        summary=(
-            f"{len(violations)} immediately-hazardous (Class C) HPD violation(s) in the last "
-            f"{DISPLACEMENT_VIOLATION_WINDOW_DAYS} days AND {len(permits)} major "
-            f"renovation/demolition permit(s) in the last {DISPLACEMENT_PERMIT_WINDOW_DAYS} "
-            f"days on the same building — a pattern that can precede tenant displacement."
-        ),
+        summary=summary,
         address=addr,
         latitude=coords[0],
         longitude=coords[1],
         confidence=0.5,  # a correlation, not a verified fact
         status=RecordStatus.REVIEW,  # human-validate before shipping (Rule 9)
+        citations=signal_citations,
         extras={
             "violation_count": len(violations),
             "permit_count": len(permits),
             "violation_ids": [v.source_record_id for v in violations],
             "permit_ids": [p.source_record_id for p in permits],
+            # Quantified, checkable fields (each traces to a cited row above).
+            "most_recent_violation_date": (
+                latest_violation.isoformat() if latest_violation else None
+            ),
+            "most_recent_permit_date": latest_permit.isoformat() if latest_permit else None,
+            "earliest_correct_by_date": earliest_due.isoformat() if earliest_due else None,
+            "days_overdue": days_overdue,
+            "permit_job_types": job_types,
+            "owner_business_name": owner,
             "sample_violation": violations[0].extras.get("nov_description"),
-            "sample_permit_job_type": sample_permit,
+            "sample_permit_job_type": permits[0].extras.get("job_type"),
         },
-        extracted_at=datetime.now(UTC),
+        extracted_at=now,
     )
 
 
@@ -486,12 +600,11 @@ def _demo() -> None:
         if i >= 8:
             print("  ... (more) ...")
             break
-        x = ev.extras
-        print(f"  * {ev.address or ev.bbl}  (BBL {ev.bbl})")
-        print(
-            f"      {x['violation_count']} Class C violation(s) + {x['permit_count']} "
-            f"{x['sample_permit_job_type']} permit(s) -> status={ev.status.value}"
-        )
+        print(f"  * {ev.address or ev.bbl}  (BBL {ev.bbl})  status={ev.status.value}")
+        print(f"      {ev.summary}")
+        print(f"      verify ({len(ev.citations)} link(s)):")
+        for c in ev.citations:
+            print(f"        - [{c.kind}] {c.label}: {c.url}")
 
 
 if __name__ == "__main__":
