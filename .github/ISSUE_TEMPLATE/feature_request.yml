@@ -1,0 +1,43 @@
+name: "Feature request"
+description: "Propose a new source, signal, or capability."
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please check the proposal against the project's guardrails first: a v1 stays
+        **narrow on purpose** (no premature abstraction), and structured feeds come before
+        PDF/LLM extraction in the build order.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What resident-facing problem does this solve?
+      description: Who is helped, and what do they learn or do that they couldn't before?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: What you'd build. If it's a new source, name it and whether it's structured (clean JSON) or dirty (PDF/HTML) — Rule 1.
+    validations:
+      required: true
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Type of request
+      options:
+        - "New data source / connector"
+        - "New or tuned signal (e.g. displacement)"
+        - "Digest / delivery improvement"
+        - "Eval / quality tooling"
+        - "Other"
+    validations:
+      required: true
+  - type: textarea
+    id: rules
+    attributes:
+      label: Fit with the guardrails
+      description: How does this keep NYC-specific code in the connector (not the shared core), and avoid premature abstraction? Any principle it tensions with?
+    validations:
+      required: false

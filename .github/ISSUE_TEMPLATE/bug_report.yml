@@ -1,0 +1,58 @@
+name: "Bug report"
+description: "A defect in the pipeline, scraper, eval harness, or digest."
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. For a **wrong civic fact** (bad hearing date, questionable
+        displacement flag), use the **Data-quality** template instead. For anything that could
+        expose a resident or a secret, follow **SECURITY.md** — do not file it here.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What went wrong, and what did you expect instead?
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Commands, inputs, or the connector/stage involved.
+      placeholder: |
+        1. Run `python -m ...`
+        2. ...
+    validations:
+      required: true
+  - type: dropdown
+    id: stage
+    attributes:
+      label: Which stage?
+      options:
+        - "Fetch (sources/)"
+        - "Parse"
+        - "Extract"
+        - "Normalize & validate"
+        - "Store"
+        - "Deliver (digest)"
+        - "Eval harness"
+        - "Other / not sure"
+    validations:
+      required: true
+  - type: textarea
+    id: env
+    attributes:
+      label: Environment
+      description: OS, Python version, and anything relevant from `.env` (NEVER paste secret values).
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before filing
+      options:
+        - label: "This is not a security/privacy issue (those go through SECURITY.md)."
+          required: true
+        - label: "I searched existing issues for a duplicate."
+          required: true
