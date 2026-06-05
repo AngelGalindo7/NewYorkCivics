@@ -65,16 +65,41 @@ from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Iterator, Mapping
 from datetime import UTC, date, datetime
-from typing import Any
-
-from requests.exceptions import RequestException
-from sodapy import Socrata
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
+from typing import TYPE_CHECKING, Any
 
 from ingest.config import get_settings
 from ingest.extract.schemas import CivicEvent, RecordStatus
 from ingest.observability import get_logger
 from ingest.sources.nyc import citations
+
+if TYPE_CHECKING:
+    from sodapy import Socrata
+
+# Import-safety (test_smoke): only pydantic is an import-time dependency. The HTTP + Socrata +
+# retry stack is needed only at fetch time, so guard it — the module must import with these deps
+# absent (CI installs a minimal env). Real runs install requests/sodapy/tenacity.
+try:
+    from requests.exceptions import RequestException
+    from sodapy import Socrata
+    from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
+except ImportError:
+    RequestException = Exception
+
+    def retry(*args: object, **kwargs: object):
+        def _decorator(func):
+            return func
+
+        return _decorator
+
+    def retry_if_exception_type(*args: object, **kwargs: object) -> None:
+        return None
+
+    def stop_after_attempt(*args: object, **kwargs: object) -> None:
+        return None
+
+    def wait_exponential(*args: object, **kwargs: object) -> None:
+        return None
+
 
 log = get_logger(__name__)
 
