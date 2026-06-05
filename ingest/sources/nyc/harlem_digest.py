@@ -34,6 +34,7 @@ from ingest.sources.nyc.dob_hpd import (
     discover_displacement_signals,
     iter_feed,
 )
+from ingest.sources.nyc.zap_api import _zap_project_to_event, iter_zap_events
 
 log = get_logger(__name__)
 
@@ -55,7 +56,11 @@ _RECENT_PERMITS = (
 
 
 def gather_live_events(
-    *, per_feed: int = 6, include_signal: bool = False, signals: int = 3
+    *,
+    per_feed: int = 6,
+    include_signal: bool = False,
+    signals: int = 3,
+    include_zap: bool = True,
 ) -> list[CivicEvent]:
     """Pull a bounded slice of recent East Harlem events from the live feeds.
 
@@ -63,6 +68,9 @@ def gather_live_events(
     cross-feed scan (thousands of rows over slow NYC Open Data) and is too heavy for
     an interactive demo. The signal is still exercised by the offline sample path and
     its own demo (``python -m ingest.sources.nyc.dob_hpd``).
+
+    ``include_zap`` is on by default: ZAP is a snapshot pull (no cursor); the scoped
+    East Harlem slice is small enough for interactive use.
     """
     events: list[CivicEvent] = []
     events += list(
@@ -77,6 +85,8 @@ def gather_live_events(
     events += list(
         iter_feed(DOB_PERMITS_FEED, where=_RECENT_PERMITS, limit=per_feed, order="dobrundate DESC")
     )
+    if include_zap:
+        events += list(iter_zap_events(limit=per_feed))
     if include_signal:
         events += list(islice(discover_displacement_signals(), signals))
     return events
@@ -140,7 +150,29 @@ def _sample_events() -> list[CivicEvent]:
     from ingest.sources.nyc.dob_hpd import _displacement_event
 
     signal = _displacement_event("1016500030", [v], [p], date.today())
-    return [v, p, nb, signal]
+
+    # ZAP land-use application on the same building (BBL 1016500030) — threads with
+    # HPD/DOB events into one building group (Rule 7). Hearing date is in the future
+    # so it surfaces as an upcoming action item in the digest.
+    z = _zap_project_to_event(
+        {
+            "project_id": "P2024M0042",
+            "ulurp_numbers": "C 240042 ZMM",
+            "project_brief": (
+                "Proposed rezoning from R7-2 to R8A to facilitate construction of a "
+                "12-story mixed-use building with 80 affordable units."
+            ),
+            "public_status": "In Public Review",
+            "applicant_name": "East Harlem Realty LLC",
+            "lead_action": "Zoning Map Amendment",
+            "community_district": "MN11",
+            "primary_address": "123 EAST 116 STREET",
+            "certified_referred": f"{today}T00:00:00.000",
+            "hearing_date_1": "2026-06-30T00:00:00.000",
+        },
+        bbl_value="1016500030",
+    )
+    return [v, p, nb, signal, z]
 
 
 def gather_events() -> tuple[list[CivicEvent], bool]:
