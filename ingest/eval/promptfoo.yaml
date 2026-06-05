@@ -59,3 +59,4 @@ tests:
   # One smoke test in Phase 0. TODO Phase 0: expand to a stratified ~50-case
   # sample drawn from ingest/eval/golden/ (stratify by visual layout).
   - description: "schema conformance — echoed sample record validates"
+    vars: {}
