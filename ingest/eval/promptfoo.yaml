@@ -9,7 +9,7 @@
 # lands, swap the `echo` provider for the Gemini Flash extractor (EXTRACT_MODEL)
 # and point prompts at ingest/extract/prompts/cb_agenda.v1.md.
 #
-# --- REAL THRESHOLDS (authoritative copy lives in docs/EVAL.md) ----------------
+# --- REAL THRESHOLDS (authoritative copy owned by the eval framework) ----------
 #   Extraction field-level F1 >= 0.80; BLOCK deploy on >3pp regression.
 #   Geocoding median error < 50m; p95 < 500m (offline eval — see tasks.py).
 #   Hallucination rate <= 1% (every extracted value appears verbatim in source).
@@ -59,3 +59,4 @@ tests:
   # One smoke test in Phase 0. TODO Phase 0: expand to a stratified ~50-case
   # sample drawn from ingest/eval/golden/ (stratify by visual layout).
   - description: "schema conformance — echoed sample record validates"
+    vars: {}

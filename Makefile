@@ -1,6 +1,6 @@
 # Single source of truth for project commands (documentation ergonomics, not an
 # abstraction — Rule 16-safe). On Windows without `make`, run the commands directly;
-# they are mirrored in README.md / CLAUDE.md. Run inside an activated .venv.
+# they are mirrored in README.md. Run inside an activated .venv.
 
 .PHONY: setup lint fmt typecheck test eval check help
 

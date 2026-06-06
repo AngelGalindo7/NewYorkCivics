@@ -2,8 +2,8 @@
 
 **Decision: prompts are versioned files, never edited in place.** Each prompt
 lives at `ingest/extract/prompts/<doc>.vN.md`. To change a prompt, copy it to
-`<doc>.v(N+1).md` and edit the copy. This is [Rule 6 (model behind a config
-flag)](../../../docs/RULES.md) extended to prompts: the *artifact* that drives a
+`<doc>.v(N+1).md` and edit the copy. This is the same discipline as keeping the
+model name behind a config flag, extended to prompts: the *artifact* that drives a
 model is itself swappable and auditable, so a regression is a diff between two
 files, not lost history.
 
@@ -20,16 +20,7 @@ files, not lost history.
 
 1. Copy `<doc>.vN.md` -> `<doc>.v(N+1).md`; edit the new file only.
 2. PR-shadow: replay the last 50 production traces through old + new prompts.
-3. Run the promptfoo before/after diff; check the [thresholds in
-   docs/EVAL.md](../../../docs/EVAL.md) (F1 ≥0.80; block on >3pp regression;
-   hallucination ≤1%).
+3. Run the promptfoo before/after diff against the eval thresholds (F1 ≥0.80;
+   block on >3pp regression; hallucination ≤1%).
 4. Block the change on any regression; otherwise the new version becomes the
    default the connector points at.
-
-This workflow is automated by the
-[iterate-extraction-prompt skill](../../../.claude/skills/iterate-extraction-prompt/SKILL.md).
-
-## Links
-
-- Eval framework + thresholds: [../../../docs/EVAL.md](../../../docs/EVAL.md)
-- Rules canon: [../../../docs/RULES.md](../../../docs/RULES.md)

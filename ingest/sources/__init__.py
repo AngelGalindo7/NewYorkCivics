@@ -22,7 +22,6 @@ Rules honored
   with no LLM; only PDF/HTML connectors hand off to Parse -> Extract.
 - Rule 4 (NYC-specific code in nyc/): no NYC names appear at this level.
 
-See [../../docs/RULES.md](../../docs/RULES.md) and root [../../CLAUDE.md](../../CLAUDE.md).
 """
 
 from __future__ import annotations

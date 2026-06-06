@@ -16,7 +16,7 @@ Rules honored here:
 CITY-AGNOSTIC: no NYC specifics. The golden labels happen to be NYC docs today,
 but this harness scores any extractor against any golden set.
 
-Thresholds are NOT defined here — they live in ``docs/EVAL.md`` (extractor
+Thresholds are NOT defined here — they are owned by the eval framework (extractor
 field-level F1 >= 0.80, block deploy on >3pp regression).
 
 Run with: ``inspect eval ingest/eval/tasks.py``
@@ -62,11 +62,11 @@ def extractor_field_f1() -> Task:
         verbatim/plausible-paraphrase in the source.
       - Report per-field F1, NOT one blended number.
 
-    Threshold (see docs/EVAL.md): field-level F1 >= 0.80; block on >3pp regression.
+    Threshold: field-level F1 >= 0.80; block on >3pp regression.
     """
     raise NotImplementedError(
         "Phase 0: load golden set, run EXTRACT_MODEL, score per-field F1 + "
-        "schema-conformance + hallucination sub-checks. Thresholds in docs/EVAL.md."
+        "schema-conformance + hallucination sub-checks. Thresholds owned by the eval framework."
     )
 
 

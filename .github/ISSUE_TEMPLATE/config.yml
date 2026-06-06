@@ -1,0 +1,9 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security or resident-harm report (private)
+    # TODO: replace OWNER/REPO with the GitHub path, or swap for a private contact email.
+    url: https://github.com/OWNER/REPO/security/policy
+    about: "Vulnerabilities, leaked secrets, or anything that could expose a resident — report privately, never as a public issue. See SECURITY.md."
+  - name: How we work (read first)
+    url: https://github.com/OWNER/REPO/blob/main/CONTRIBUTING.md
+    about: "Core principles, dev setup, and how changes are reviewed. Most 'why does it work this way' questions are answered here."

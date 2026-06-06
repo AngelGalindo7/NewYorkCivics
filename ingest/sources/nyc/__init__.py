@@ -18,8 +18,6 @@ Rules honored
 - Rule 4 (NYC-specific code in nyc/): this package is the *only* legal home for it.
 - Rule 1 (LLM only on dirty inputs): structured connectors above never call an LLM.
 
-See per-package contract in [CLAUDE.md](CLAUDE.md), the canon in
-[../../../docs/RULES.md](../../../docs/RULES.md), and root [../../../CLAUDE.md](../../../CLAUDE.md).
 """
 
 from __future__ import annotations
