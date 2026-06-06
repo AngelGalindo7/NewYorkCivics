@@ -217,4 +217,4 @@ class CivicEvent(BaseModel):
     # TODO Phase 1: add geometry validation hook + BIN/community_district once
     # Normalize wires GeoSupport (these are derived, not extracted).
     # TODO Phase 2: tighten action_type to a Literal/Enum over the locked
-    # ~15-25 type taxonomy (see docs/EVAL.md categorical row).
+    # ~15-25 type taxonomy (the eval framework's categorical row).

@@ -13,5 +13,5 @@ Public surface:
     promptfoo.yaml -- CI assertions (promptfoo, node/npx CLI).
     tasks.py       -- offline trajectory evals (Inspect AI).
 
-Thresholds are NOT defined in code; they live in ``docs/EVAL.md``.
+Thresholds are NOT defined in code; they are owned by the eval framework.
 """

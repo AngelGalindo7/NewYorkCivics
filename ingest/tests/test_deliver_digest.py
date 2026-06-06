@@ -104,8 +104,11 @@ def test_honest_footer_does_not_overclaim(digest):
         assert "Every update above links" not in body
 
 
-def test_review_gate_blocks_send_until_cleared(tmp_path: Path, digest):
+def test_review_gate_blocks_send_until_cleared(tmp_path: Path, digest, monkeypatch):
     from ingest.deliver.send import send_digest
+
+    # Ensure BYPASS_HUMAN_REVIEW is off regardless of the developer's local env.
+    monkeypatch.delenv("BYPASS_HUMAN_REVIEW", raising=False)
 
     # Rule 9: a digest with unreviewed items must not send.
     assert digest["review_required"] is True

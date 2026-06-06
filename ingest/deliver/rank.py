@@ -25,7 +25,7 @@ from __future__ import annotations
 
 # Six named weights (Rule 8). Overridable per call. These are conservative
 # starting values — TODO Phase 2: tune against the ranking eval
-# (NDCG@10 >= 0.70, list diversity >= 0.40; see docs/EVAL.md).
+# (NDCG@10 >= 0.70, list diversity >= 0.40; per the eval framework).
 DEFAULT_WEIGHTS: dict[str, float] = {
     "w_d": 0.30,  # proximity
     "w_t": 0.15,  # recency

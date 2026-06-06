@@ -1,8 +1,7 @@
 # Extraction prompt — Community Board agenda (v1)
 
-> Versioned artifact (Rule 6). Do not edit in place — iterate by copying to
-> `cb_agenda.v2.md`. See [README.md](README.md) for the convention and
-> [../../../docs/EVAL.md](../../../docs/EVAL.md) for the gate.
+> Versioned artifact. Do not edit in place — iterate by copying to
+> `cb_agenda.v2.md`. See [README.md](README.md) for the versioning convention.
 
 ## Role
 

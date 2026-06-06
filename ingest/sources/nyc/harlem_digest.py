@@ -34,6 +34,7 @@ from ingest.sources.nyc.dob_hpd import (
     discover_displacement_signals,
     iter_feed,
 )
+from ingest.sources.nyc.legistar import discover_cd_hearings
 from ingest.sources.nyc.zap_api import _zap_project_to_event, iter_zap_events
 
 log = get_logger(__name__)
@@ -61,6 +62,8 @@ def gather_live_events(
     include_signal: bool = False,
     signals: int = 3,
     include_zap: bool = True,
+    include_legistar: bool = True,
+    legistar_days: int = 30,
 ) -> list[CivicEvent]:
     """Pull a bounded slice of recent East Harlem events from the live feeds.
 
@@ -71,6 +74,10 @@ def gather_live_events(
 
     ``include_zap`` is on by default: ZAP is a snapshot pull (no cursor); the scoped
     East Harlem slice is small enough for interactive use.
+
+    ``include_legistar`` pulls upcoming Land Use Committee / City Council hearings
+    for the next ``legistar_days`` days (Phase 1 gate). Hearings have no per-building
+    BBL so they land in the ``in_your_area`` band of the digest (all of East Harlem).
     """
     events: list[CivicEvent] = []
     events += list(
@@ -87,6 +94,9 @@ def gather_live_events(
     )
     if include_zap:
         events += list(iter_zap_events(limit=per_feed))
+    if include_legistar:
+        # Phase 1 gate: "upcoming hearings in CD X returns correct dates for next 30 days."
+        events += discover_cd_hearings("MN11", days_ahead=legistar_days)
     if include_signal:
         events += list(islice(discover_displacement_signals(), signals))
     return events

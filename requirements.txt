@@ -5,7 +5,7 @@
 # Pins are loose (>=) on purpose: this is a greenfield scaffold and we want the latest
 # compatible patch/minor. Tighten to == once a known-good lockfile exists (Phase 1+).
 #
-# PYTHON VERSION CAVEAT: target is Python 3.14 (see docs/RULES.md / README setup), but on
+# PYTHON VERSION CAVEAT: target is Python 3.14 (see README setup), but on
 # 3.14 some binary wheels still lag (notably psycopg, PyMuPDF, and geosupport). If `pip install` fails
 # to find a wheel for your platform, fall back to Python 3.11–3.12 — the safe baseline.
 

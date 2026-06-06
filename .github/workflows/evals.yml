@@ -1,4 +1,4 @@
-# Eval CI — the promptfoo PR check (see docs/EVAL.md "Eval in CI — the workflow").
+# Eval CI — the promptfoo PR check. Runs on every PR and posts a before/after diff comment.
 #
 # What it does: on every pull request, run promptfoo against ingest/eval/promptfoo.yaml and
 # post a before/after diff as a PR comment. This is the canary for prompt changes.
@@ -6,11 +6,11 @@
 # Lifecycle: ACTIVATES IN PHASE 0. In Phase 0 the only assertion is JSON-schema conformance
 # against a DUMMY/echo provider (no real model calls, no API keys), so this job runs green
 # from day one and no-ops gracefully. As real providers + golden cases land, the same job
-# starts enforcing the BLOCK-DEPLOYMENT THRESHOLDS documented in docs/EVAL.md:
+# starts enforcing the project's BLOCK-DEPLOYMENT THRESHOLDS:
 #   - extraction field-level F1 regression > 3pp  -> fail
 #   - geocoding median-error regression  > 20m    -> fail
 #   - factual-consistency drop           > 5pp    -> fail
-# Those gates live in docs/EVAL.md (the eval framework owns them); this workflow only runs them.
+# The eval framework owns these gates; this workflow only runs them.
 
 name: evals
 

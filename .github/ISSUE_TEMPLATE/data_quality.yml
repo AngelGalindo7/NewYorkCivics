@@ -1,0 +1,51 @@
+name: "Data-quality / wrong civic fact"
+description: "A civic claim that looks wrong, stale, or misleading (a bad date, a questionable displacement flag, a broken source link)."
+labels: ["data-quality"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **This is the highest-priority kind of issue this project has.** Being *confidently wrong*
+        is our worst failure mode. If the problem could **harm or expose a resident** (e.g. naming a
+        person, or a flag that could be used against tenants), **stop and follow SECURITY.md** —
+        report it privately, not here.
+  - type: textarea
+    id: claim
+    attributes:
+      label: The claim, as it appeared
+      description: Quote the digest item / record exactly, including any date, address, or BBL.
+    validations:
+      required: true
+  - type: input
+    id: source-link
+    attributes:
+      label: Source link (the City's own record)
+      description: The citation the item carried, or the authoritative NYC record that contradicts it. This is what lets us verify against the source.
+      placeholder: "https://data.cityofnewyork.us/resource/... or https://a810-bisweb.nyc.gov/..."
+    validations:
+      required: true
+  - type: textarea
+    id: whats-wrong
+    attributes:
+      label: What's wrong, and what's correct?
+      description: What the record actually says vs what was published.
+    validations:
+      required: true
+  - type: dropdown
+    id: severity
+    attributes:
+      label: How wrong?
+      options:
+        - "Misleading framing (correct facts, wrong impression)"
+        - "Stale (was true, now out of date)"
+        - "Factually wrong (date / address / identifier)"
+        - "Looks fabricated (no source supports it)"
+    validations:
+      required: true
+  - type: checkboxes
+    id: not-harmful
+    attributes:
+      label: Safety check
+      options:
+        - label: "This report does not expose a resident or a person; if it did, I would use SECURITY.md instead."
+          required: true
