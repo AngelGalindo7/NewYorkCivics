@@ -75,7 +75,6 @@ _LAND_USE_BODIES = frozenset(
     {
         "Committee on Land Use",
         "Subcommittee on Landmarks, Public Siting and Maritime Uses",
-        "City Council",
     }
 )
 
@@ -212,6 +211,8 @@ def discover_events(since: str | None = None) -> Iterator[CivicEvent]:
         ``status=ACCEPTED`` (structured, Rule 10), ``source_id=SOURCE_ID``
         (Rule 15). No LLM (Rule 1).
     """
+    if since and "T" not in since:
+        since = since + "T00:00:00"
     cutoff = datetime.now(UTC).strftime("%Y-%m-%dT00:00:00") if since is None else since
 
     filter_expr = f"EventDate ge datetime'{cutoff}'"

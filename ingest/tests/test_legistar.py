@@ -108,8 +108,8 @@ def test_land_use_body_gets_land_use_type(lu_event):
     assert lu_event.action_type == "land_use_hearing"
 
 
-def test_city_council_gets_land_use_type(council_event):
-    assert council_event.action_type == "land_use_hearing"
+def test_city_council_gets_council_hearing_type(council_event):
+    assert council_event.action_type == "council_hearing"
 
 
 def test_other_body_gets_council_hearing_type(other_event):
