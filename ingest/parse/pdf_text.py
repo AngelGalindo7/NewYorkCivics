@@ -14,14 +14,9 @@ Rules honored
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+import io
 
-from ingest.parse import ParsedDoc
-
-if TYPE_CHECKING:
-    # Heavy optional libs are imported lazily inside the implementation so the
-    # stub imports cleanly before deps are installed.
-    import pdfplumber  # noqa: F401
+from ingest.parse import PageLayout, ParsedDoc
 
 
 def extract_text(pdf_bytes: bytes) -> ParsedDoc:
@@ -36,10 +31,71 @@ def extract_text(pdf_bytes: bytes) -> ParsedDoc:
         ``pdf_route`` to send to the vision fallback. No ``page_images`` rendered
         here.
     """
-    raise NotImplementedError("Phase 0: pdfplumber/PyMuPDF digital text extraction -> ParsedDoc.")
+    if not pdf_bytes:
+        raise ValueError("pdf_bytes is empty; caller must validate input before parsing")
+    try:
+        import pdfplumber as _pdfplumber
 
+        page_texts: list[str] = []
+        layout: list[PageLayout] = []
 
-# TODO Phase 0: implement on the 10 hand-labeled CB agendas; gate is all 10 parse
-#   without crashing.
-# TODO Phase 2: render page_images here (or in pdf_route) so the vision fallback and
-#   Extract have images for scanned/messy pages.
+        with _pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+            for i, page in enumerate(pdf.pages, start=1):
+                raw = page.extract_text() or ""
+                char_count = len(raw)
+                page_texts.append(raw)
+                layout.append(
+                    PageLayout(
+                        page_number=i,
+                        char_count=char_count,
+                        is_scanned=(char_count == 0),
+                        extractor="text",
+                    )
+                )
+
+        return ParsedDoc(
+            text="\n\n".join(page_texts),
+            page_images=[],  # Phase 2 will populate this via pdf_route / pdf_vision
+            layout=layout,
+        )
+
+    except ImportError:
+        pass
+
+    try:
+        import fitz as _fitz
+
+        page_texts = []
+        layout = []
+
+        doc = _fitz.open(stream=pdf_bytes, filetype="pdf")
+        try:
+            for i in range(doc.page_count):
+                page = doc.load_page(i)
+                raw = page.get_text("text") or ""
+                char_count = len(raw)
+                page_texts.append(raw)
+                layout.append(
+                    PageLayout(
+                        page_number=i + 1,
+                        char_count=char_count,
+                        is_scanned=(char_count == 0),
+                        extractor="text",
+                    )
+                )
+        finally:
+            doc.close()
+
+        return ParsedDoc(
+            text="\n\n".join(page_texts),
+            page_images=[],  # Phase 2 will populate this via pdf_route / pdf_vision
+            layout=layout,
+        )
+
+    except ImportError:
+        pass
+
+    raise RuntimeError(
+        "Neither pdfplumber nor PyMuPDF (fitz) is installed. "
+        "Install at least one: `pip install pdfplumber` or `pip install pymupdf`."
+    )
