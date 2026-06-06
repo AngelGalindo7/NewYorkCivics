@@ -29,5 +29,3 @@ npm run eval                            # run the eval suite (promptfoo via pack
 ## Architecture (short version)
 
 The system is an assembly line of six stages — **Fetch → Parse → Extract → Normalize & validate → Store → Deliver** — with a permanent evaluation harness running alongside it. The core design choice is *many thin per-source connectors feeding one shared, city-agnostic core*: NYC-specific knowledge stays quarantined in clearly labeled modules, so the same machinery can serve a second city later by copy-and-swap.
-
-For the full picture — the clean/dirty boundary, why we rejected a generic config engine, and how the seams are drawn — see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Engineers and Claude Code sessions should start at [CLAUDE.md](CLAUDE.md), the project map.
