@@ -38,4 +38,4 @@ CLAUDE.md
 docs/
 
 # NOTE: ingest/eval/golden/ is NOT ignored on purpose.
-# The hand-labeled golden set is a committed, append-only project asset (Rule 5).
+# The hand-labeled golden set is a committed, append-only project asset.

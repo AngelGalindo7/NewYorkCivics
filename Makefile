@@ -5,7 +5,7 @@
 .PHONY: setup lint fmt typecheck test eval inspect-eval check help
 
 help:  ## list targets
-	@echo "setup lint fmt typecheck test eval check"
+	@echo "setup lint fmt typecheck test eval inspect-eval check"
 
 setup:      ## install runtime + dev/eval deps
 	pip install -e .

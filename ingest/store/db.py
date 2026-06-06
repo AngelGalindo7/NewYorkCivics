@@ -82,7 +82,9 @@ def upsert_event(
         elif key not in ("latitude", "longitude"):
             overflow[key] = value
 
-    assert not (canonical.keys() - _EVENT_COLUMNS), f"canonical contains unexpected keys: {canonical.keys() - _EVENT_COLUMNS}"
+    unexpected = canonical.keys() - _EVENT_COLUMNS
+    if unexpected:
+        raise ValueError(f"Event dict contains keys not in _EVENT_COLUMNS: {sorted(unexpected)}")
 
     # Merge explicit extras kwarg on top of overflow (explicit wins on collision).
     merged_extras: dict[str, Any] = {**overflow, **(extras or {})}

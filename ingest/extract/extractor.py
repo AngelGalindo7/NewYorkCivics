@@ -15,10 +15,11 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-from ingest.config import get_settings
-from ingest.extract.schemas import CivicEvent, RecordStatus
-from ingest.parse import ParsedDoc
+if TYPE_CHECKING:
+    from ingest.extract.schemas import CivicEvent, RecordStatus
+    from ingest.parse import ParsedDoc
 
 logger = logging.getLogger(__name__)
 
@@ -33,11 +34,11 @@ def _load_prompt(name: str = "cb_agenda.v1.md") -> str:
 
 
 def extract(
-    doc: ParsedDoc,
+    doc: "ParsedDoc",
     *,
     source_id: str,
     prompt_name: str = "cb_agenda.v1.md",
-) -> list[CivicEvent]:
+) -> "list[CivicEvent]":
     """Extract CivicEvent objects from a ParsedDoc using EXTRACT_MODEL.
 
     Returns an empty list on any LLM or parsing failure — callers quarantine the
@@ -57,6 +58,8 @@ def extract(
 
 def _call_llm(prompt: str) -> str:
     """Call EXTRACT_MODEL and return the raw response text (a JSON array string)."""
+    from ingest.config import get_settings
+
     settings = get_settings()
 
     try:
@@ -81,8 +84,9 @@ def _call_llm(prompt: str) -> str:
     return response.text
 
 
-def _parse_response(raw: str, *, source_id: str) -> list[CivicEvent]:
+def _parse_response(raw: str, *, source_id: str) -> "list[CivicEvent]":
     """Validate and coerce the raw LLM JSON into CivicEvent objects (Rule 2)."""
+    from ingest.extract.schemas import CivicEvent, RecordStatus
     try:
         data = json.loads(raw)
     except json.JSONDecodeError as exc:

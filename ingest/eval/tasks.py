@@ -51,10 +51,7 @@ else:  # pragma: no cover — exercised only when inspect_ai is installed
         from inspect_ai.scorer import Score, Target, mean, scorer
         from inspect_ai.solver import Generate, TaskState, solver
 
-        _INSPECT_AVAILABLE = True
     except ImportError:
-        _INSPECT_AVAILABLE = False
-
         Task = Any  # type: ignore[assignment,misc]
         MemoryDataset = Any
         Sample = Any
@@ -117,17 +114,7 @@ def _extract_solver():  # type: ignore[misc]
         from ingest.extract.extractor import extract
         from ingest.parse import ParsedDoc
 
-        # state.input is a list[ChatMessage]; the first user message holds the source text.
-        input_text: str = ""
-        if hasattr(state, "input_text"):
-            input_text = state.input_text  # type: ignore[attr-defined]
-        elif hasattr(state, "input") and isinstance(state.input, str):
-            input_text = state.input
-        elif hasattr(state, "messages") and state.messages:
-            first = state.messages[0]
-            content = getattr(first, "content", "")
-            input_text = content if isinstance(content, str) else str(content)
-
+        input_text = _get_input_text(state)
         doc = ParsedDoc(text=input_text)
         events = extract(doc, source_id="nyc_cb_agenda_eval")
 
