@@ -66,7 +66,7 @@ def match_events(
     )
 
 
-def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+def haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     """Great-circle distance in metres between two WGS84 points."""
     p1, p2 = radians(lat1), radians(lat2)
     dphi = radians(lat2 - lat1)
@@ -109,7 +109,7 @@ def match_subscriber(
             and ev.latitude is not None
             and ev.longitude is not None
         ):
-            dist = _haversine_m(s_lat, s_lng, ev.latitude, ev.longitude)
+            dist = haversine_m(s_lat, s_lng, ev.latitude, ev.longitude)
             if dist <= BLOCK_RADIUS_M:
                 bands[BAND_ON_YOUR_BLOCK].append(ev)
             elif dist <= NEIGHBORHOOD_RADIUS_M:

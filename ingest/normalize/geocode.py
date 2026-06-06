@@ -126,8 +126,16 @@ def _try_import_geosupport() -> Any:
         return None
 
 
-# Module-level singleton — initialized once; None when binaries are absent.
-_GS: Any = _try_import_geosupport()
+_GS: Any = None
+_GS_INITIALIZED: bool = False
+
+
+def _get_gs() -> Any:
+    global _GS, _GS_INITIALIZED
+    if not _GS_INITIALIZED:
+        _GS = _try_import_geosupport()
+        _GS_INITIALIZED = True
+    return _GS
 
 
 def geocode(address: str) -> GeoResult:
@@ -144,7 +152,8 @@ def geocode(address: str) -> GeoResult:
     Requires GeoSupport binaries + GEOSUPPORT_* env (see module docstring and
     .env.example).
     """
-    if _GS is None:
+    gs = _get_gs()
+    if gs is None:
         return GeoResult(
             ok=False,
             reason=(
@@ -160,7 +169,7 @@ def geocode(address: str) -> GeoResult:
         return GeoResult(ok=False, reason=f"could not parse house_number from {address!r}")
 
     try:
-        result: dict[str, Any] = _GS["1B"](
+        result: dict[str, Any] = gs["1B"](
             house_number=house_number,
             street_name=street_name,
             borough_code=borough_code,

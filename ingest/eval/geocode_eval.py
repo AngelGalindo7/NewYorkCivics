@@ -33,7 +33,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from ingest.deliver.match import _haversine_m
+from ingest.deliver.match import haversine_m
 from ingest.normalize.geocode import geocode
 from ingest.observability import get_logger
 
@@ -101,7 +101,7 @@ def run_eval(csv_path: Path) -> dict[str, Any]:
         if ref_lat_s and ref_lon_s and result.latitude and result.longitude:
             try:
                 ref_lat, ref_lon = float(ref_lat_s), float(ref_lon_s)
-                err = _haversine_m(ref_lat, ref_lon, result.latitude, result.longitude)
+                err = haversine_m(ref_lat, ref_lon, result.latitude, result.longitude)
                 errors_m.append(err)
             except (ValueError, TypeError):
                 pass
