@@ -15,15 +15,13 @@ Rules honored:
   into quarantine with a reason — never silently kept or "corrected".
 - Rule 13 (per-field accuracy targets): zoning is a high-bar identifier field,
   validated independently of other fields.
-
-# TODO Phase 1: replace the stub canonical list (CANONICAL_ZONING_CODES_STUB)
-# with the full Zoning Resolution district set; consider normalizing case /
-# whitespace / overlay separators before lookup.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+
+from ingest.extract.ulurp_codes import CANONICAL_ZONING_CODES
 
 
 @dataclass(frozen=True)
@@ -46,7 +44,11 @@ def validate_zoning_code(code: str) -> ZoningValidation:
     module). On a miss returns ``ZoningValidation(ok=False, reason=...)`` so the
     record is quarantined (Rule 2) — does not guess or auto-correct.
     """
-    raise NotImplementedError(
-        "Phase 1: validate against canonical zoning list "
-        "(see ingest/extract/ulurp_codes.py CANONICAL_ZONING_CODES_STUB)."
+    normalized = code.strip().upper()
+    if normalized in CANONICAL_ZONING_CODES:
+        return ZoningValidation(ok=True, code=normalized, normalized=normalized)
+    return ZoningValidation(
+        ok=False,
+        code=code,
+        reason=f"Unknown zoning district: {normalized!r}",
     )
