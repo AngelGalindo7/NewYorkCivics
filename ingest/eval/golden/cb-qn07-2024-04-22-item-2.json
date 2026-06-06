@@ -1,0 +1,77 @@
+{
+  "_layout": "single_column",
+  "_source_text": "QUEENS COMMUNITY BOARD 7\nLand Use Committee Meeting\nMonday, April 22, 2024, 7:30 PM\n136-56 39th Avenue, Flushing, NY 11354\n\nAGENDA\n\nItem 2. ULURP No. C 240112 ZMQ — Zoning Map Amendment, 37-18 Prince Street\n\nThe applicant, Prince Street Development LLC, seeks a zoning map amendment for the property at 37-18 Prince Street, Flushing, NY 11354 (Block 5001, Lot 23). The application proposes to rezone the site from M1-1 to R7A to allow the development of a seven-story residential building with 64 dwelling units.\n\nThe public comment period runs through May 6, 2024. Written comments may be directed to the Board office at 136-56 39th Avenue.",
+  "source_id": "nyc_cb_agenda",
+  "source_record_id": "cb-qn07-2024-04-22-item-2",
+  "action_type": "zoning_map_amendment",
+  "title": "ULURP C 240112 ZMQ — Zoning Map Amendment, 37-18 Prince Street",
+  "summary": "Community Board 7 (Queens) to hear a zoning map amendment rezoning 37-18 Prince Street, Flushing from M1-1 to R7A for a seven-story, 64-unit residential building.",
+  "event_date": "2024-04-22",
+  "event_time": "19:30",
+  "deadline": "2024-05-06",
+  "address": "37-18 Prince Street, Flushing, NY 11354",
+  "bbl": null,
+  "ulurp_number": "C 240112 ZMQ",
+  "ceqr_number": null,
+  "zoning_from": "M1-1",
+  "zoning_to": "R7A",
+  "confidence": 0.95,
+  "status": "accepted",
+  "extras": {},
+  "provenance": {
+    "title": {
+      "value": "ULURP C 240112 ZMQ — Zoning Map Amendment, 37-18 Prince Street",
+      "source_quote": "Item 2. ULURP No. C 240112 ZMQ — Zoning Map Amendment, 37-18 Prince Street",
+      "page": 1,
+      "char_span": null
+    },
+    "action_type": {
+      "value": "zoning_map_amendment",
+      "source_quote": "seeks a zoning map amendment for the property at 37-18 Prince Street",
+      "page": 1,
+      "char_span": null
+    },
+    "ulurp_number": {
+      "value": "C 240112 ZMQ",
+      "source_quote": "Item 2. ULURP No. C 240112 ZMQ — Zoning Map Amendment, 37-18 Prince Street",
+      "page": 1,
+      "char_span": null
+    },
+    "zoning_from": {
+      "value": "M1-1",
+      "source_quote": "The application proposes to rezone the site from M1-1 to R7A",
+      "page": 1,
+      "char_span": null
+    },
+    "zoning_to": {
+      "value": "R7A",
+      "source_quote": "The application proposes to rezone the site from M1-1 to R7A",
+      "page": 1,
+      "char_span": null
+    },
+    "address": {
+      "value": "37-18 Prince Street, Flushing, NY 11354",
+      "source_quote": "seeks a zoning map amendment for the property at 37-18 Prince Street, Flushing, NY 11354",
+      "page": 1,
+      "char_span": null
+    },
+    "event_date": {
+      "value": "2024-04-22",
+      "source_quote": "Monday, April 22, 2024, 7:30 PM",
+      "page": 1,
+      "char_span": null
+    },
+    "event_time": {
+      "value": "19:30",
+      "source_quote": "Monday, April 22, 2024, 7:30 PM",
+      "page": 1,
+      "char_span": null
+    },
+    "deadline": {
+      "value": "2024-05-06",
+      "source_quote": "The public comment period runs through May 6, 2024.",
+      "page": 1,
+      "char_span": null
+    }
+  }
+}

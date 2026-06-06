@@ -1,0 +1,59 @@
+{
+  "_layout": "single_column",
+  "_source_text": "STATEN ISLAND COMMUNITY BOARD 1\nZoning and Land Use Committee\nMonday, May 6, 2024, 7:00 PM\nStaten Island Borough Hall, 10 Richmond Terrace, Staten Island, NY 10301\n\nAGENDA\n\nItem 2. Disposition of City-Owned Property — 118 Harbor Road, Staten Island\n\nThe Committee will review a proposal by the Department of Citywide Administrative Services (DCAS) to dispose of city-owned property at 118 Harbor Road, Staten Island, NY 10301. The lot (Block 6, Lot 22) is approximately 4,200 square feet and has been vacant since 2019. DCAS proposes to sell the property at fair market value for residential development consistent with the existing R3-2 zoning.\n\nNo ULURP application is associated with this disposition. The Board is asked to provide an advisory recommendation to DCAS by May 20, 2024.",
+  "source_id": "nyc_cb_agenda",
+  "source_record_id": "cb-si01-2024-05-06-item-2",
+  "action_type": "disposition",
+  "title": "Disposition of City-Owned Property — 118 Harbor Road, Staten Island",
+  "summary": "Community Board 1 (Staten Island) to review DCAS proposal to sell vacant city-owned lot at 118 Harbor Road for residential development consistent with existing R3-2 zoning.",
+  "event_date": "2024-05-06",
+  "event_time": "19:00",
+  "deadline": "2024-05-20",
+  "address": "118 Harbor Road, Staten Island, NY 10301",
+  "bbl": null,
+  "ulurp_number": null,
+  "ceqr_number": null,
+  "zoning_from": null,
+  "zoning_to": null,
+  "confidence": 0.90,
+  "status": "accepted",
+  "extras": {},
+  "provenance": {
+    "title": {
+      "value": "Disposition of City-Owned Property — 118 Harbor Road, Staten Island",
+      "source_quote": "Item 2. Disposition of City-Owned Property — 118 Harbor Road, Staten Island",
+      "page": 1,
+      "char_span": null
+    },
+    "action_type": {
+      "value": "disposition",
+      "source_quote": "to dispose of city-owned property at 118 Harbor Road, Staten Island, NY 10301",
+      "page": 1,
+      "char_span": null
+    },
+    "address": {
+      "value": "118 Harbor Road, Staten Island, NY 10301",
+      "source_quote": "to dispose of city-owned property at 118 Harbor Road, Staten Island, NY 10301",
+      "page": 1,
+      "char_span": null
+    },
+    "event_date": {
+      "value": "2024-05-06",
+      "source_quote": "Monday, May 6, 2024, 7:00 PM",
+      "page": 1,
+      "char_span": null
+    },
+    "event_time": {
+      "value": "19:00",
+      "source_quote": "Monday, May 6, 2024, 7:00 PM",
+      "page": 1,
+      "char_span": null
+    },
+    "deadline": {
+      "value": "2024-05-20",
+      "source_quote": "The Board is asked to provide an advisory recommendation to DCAS by May 20, 2024.",
+      "page": 1,
+      "char_span": null
+    }
+  }
+}

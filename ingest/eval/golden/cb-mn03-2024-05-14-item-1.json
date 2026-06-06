@@ -1,0 +1,59 @@
+{
+  "_layout": "single_column",
+  "_source_text": "MANHATTAN COMMUNITY BOARD 3\nFull Board Meeting\nTuesday, May 14, 2024, 6:30 PM\nHenry Street Settlement, 265 Henry Street, New York, NY 10002\n\nAGENDA\n\nItem 1. VOTE — ULURP No. C 240078 ZSM — Special Permit, 127 Chrystie Street\n\nThe Full Board will vote on the Land Use Committee's recommendation regarding ULURP No. C 240078 ZSM, a special permit application for 127 Chrystie Street, New York, NY 10002. The Land Use Committee recommended approval with conditions at its April 23, 2024 meeting. The special permit seeks authorization under ZR §74-713 for enlargement of a non-conforming residential building in a C4-4A district.\n\nThe Board's vote shall constitute its formal advisory recommendation to the City Planning Commission. No additional public comment period is provided.",
+  "source_id": "nyc_cb_agenda",
+  "source_record_id": "cb-mn03-2024-05-14-item-1",
+  "action_type": "vote",
+  "title": "VOTE — ULURP C 240078 ZSM — Special Permit, 127 Chrystie Street",
+  "summary": "Community Board 3 (Manhattan) Full Board to vote on a special permit recommendation for 127 Chrystie Street, following a Land Use Committee recommendation of approval with conditions.",
+  "event_date": "2024-05-14",
+  "event_time": "18:30",
+  "deadline": null,
+  "address": "127 Chrystie Street, New York, NY 10002",
+  "bbl": null,
+  "ulurp_number": "C 240078 ZSM",
+  "ceqr_number": null,
+  "zoning_from": null,
+  "zoning_to": null,
+  "confidence": 0.94,
+  "status": "accepted",
+  "extras": {},
+  "provenance": {
+    "title": {
+      "value": "VOTE — ULURP C 240078 ZSM — Special Permit, 127 Chrystie Street",
+      "source_quote": "Item 1. VOTE — ULURP No. C 240078 ZSM — Special Permit, 127 Chrystie Street",
+      "page": 1,
+      "char_span": null
+    },
+    "action_type": {
+      "value": "vote",
+      "source_quote": "The Full Board will vote on the Land Use Committee's recommendation",
+      "page": 1,
+      "char_span": null
+    },
+    "ulurp_number": {
+      "value": "C 240078 ZSM",
+      "source_quote": "ULURP No. C 240078 ZSM, a special permit application for 127 Chrystie Street",
+      "page": 1,
+      "char_span": null
+    },
+    "address": {
+      "value": "127 Chrystie Street, New York, NY 10002",
+      "source_quote": "a special permit application for 127 Chrystie Street, New York, NY 10002",
+      "page": 1,
+      "char_span": null
+    },
+    "event_date": {
+      "value": "2024-05-14",
+      "source_quote": "Tuesday, May 14, 2024, 6:30 PM",
+      "page": 1,
+      "char_span": null
+    },
+    "event_time": {
+      "value": "18:30",
+      "source_quote": "Tuesday, May 14, 2024, 6:30 PM",
+      "page": 1,
+      "char_span": null
+    }
+  }
+}

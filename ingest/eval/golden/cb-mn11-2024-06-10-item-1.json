@@ -1,0 +1,47 @@
+{
+  "_layout": "single_column",
+  "_source_text": "MANHATTAN COMMUNITY BOARD 11\nFull Board Meeting\nMonday, June 10, 2024, 6:30 PM\n55 East 115th Street, New York, NY 10029\n\nAGENDA\n\nItem 1. Fiscal Year 2025 Budget Hearing — Capital and Expense Priorities\n\nCommunity Board 11 will hold its annual Fiscal Year 2025 budget hearing. The Board will hear testimony from residents and community organizations regarding capital and expense budget priorities for East Harlem and El Barrio. Priority areas include housing preservation, street infrastructure, park improvements, and public school facilities.\n\nThere are no land use or ULURP matters associated with this agenda item. All residents of Community District 11 are encouraged to attend and testify.",
+  "source_id": "nyc_cb_agenda",
+  "source_record_id": "cb-mn11-2024-06-10-item-1",
+  "action_type": "budget_hearing",
+  "title": "Fiscal Year 2025 Budget Hearing — Capital and Expense Priorities, Community Board 11",
+  "summary": "Community Board 11 (East Harlem) annual FY2025 budget hearing on capital and expense priorities including housing preservation, street infrastructure, parks, and schools.",
+  "event_date": "2024-06-10",
+  "event_time": "18:30",
+  "deadline": null,
+  "address": null,
+  "bbl": null,
+  "ulurp_number": null,
+  "ceqr_number": null,
+  "zoning_from": null,
+  "zoning_to": null,
+  "confidence": 0.93,
+  "status": "accepted",
+  "extras": {},
+  "provenance": {
+    "title": {
+      "value": "Fiscal Year 2025 Budget Hearing — Capital and Expense Priorities, Community Board 11",
+      "source_quote": "Item 1. Fiscal Year 2025 Budget Hearing — Capital and Expense Priorities",
+      "page": 1,
+      "char_span": null
+    },
+    "action_type": {
+      "value": "budget_hearing",
+      "source_quote": "Community Board 11 will hold its annual Fiscal Year 2025 budget hearing.",
+      "page": 1,
+      "char_span": null
+    },
+    "event_date": {
+      "value": "2024-06-10",
+      "source_quote": "Monday, June 10, 2024, 6:30 PM",
+      "page": 1,
+      "char_span": null
+    },
+    "event_time": {
+      "value": "18:30",
+      "source_quote": "Monday, June 10, 2024, 6:30 PM",
+      "page": 1,
+      "char_span": null
+    }
+  }
+}

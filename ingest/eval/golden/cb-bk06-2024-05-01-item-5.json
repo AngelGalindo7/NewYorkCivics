@@ -1,0 +1,53 @@
+{
+  "_layout": "single_column",
+  "_source_text": "BROOKLYN COMMUNITY BOARD 6\nJoint Landmarks and Zoning & Building Committee\nWednesday, May 1, 2024, 7:00 PM\n141 Fifth Avenue (Fifth Avenue Presbyterian Church), Brooklyn, NY 11217\n\nAGENDA\n\nItem 5. Public Hearing — Proposed Individual Landmark Designation, 427 Sterling Place\n\nCommunity Board 6 will hold a public hearing on the proposed individual landmark designation of 427 Sterling Place, Brooklyn, NY 11217, a late-19th century rowhouse in the Crown Heights neighborhood. The application was submitted to the Landmarks Preservation Commission on March 8, 2024.\n\nResidents and interested parties are invited to testify. No specific comment deadline has been established; the Board will forward its recommendation to LPC following this hearing.",
+  "source_id": "nyc_cb_agenda",
+  "source_record_id": "cb-bk06-2024-05-01-item-5",
+  "action_type": "hearing",
+  "title": "Public Hearing — Proposed Individual Landmark Designation, 427 Sterling Place",
+  "summary": "Community Board 6 (Brooklyn) to hold a public hearing on the proposed individual landmark designation of 427 Sterling Place, a late-19th century Crown Heights rowhouse.",
+  "event_date": "2024-05-01",
+  "event_time": "19:00",
+  "deadline": null,
+  "address": "427 Sterling Place, Brooklyn, NY 11217",
+  "bbl": null,
+  "ulurp_number": null,
+  "ceqr_number": null,
+  "zoning_from": null,
+  "zoning_to": null,
+  "confidence": 0.91,
+  "status": "accepted",
+  "extras": {},
+  "provenance": {
+    "title": {
+      "value": "Public Hearing — Proposed Individual Landmark Designation, 427 Sterling Place",
+      "source_quote": "Item 5. Public Hearing — Proposed Individual Landmark Designation, 427 Sterling Place",
+      "page": 1,
+      "char_span": null
+    },
+    "action_type": {
+      "value": "hearing",
+      "source_quote": "Community Board 6 will hold a public hearing on the proposed individual landmark designation",
+      "page": 1,
+      "char_span": null
+    },
+    "address": {
+      "value": "427 Sterling Place, Brooklyn, NY 11217",
+      "source_quote": "proposed individual landmark designation of 427 Sterling Place, Brooklyn, NY 11217",
+      "page": 1,
+      "char_span": null
+    },
+    "event_date": {
+      "value": "2024-05-01",
+      "source_quote": "Wednesday, May 1, 2024, 7:00 PM",
+      "page": 1,
+      "char_span": null
+    },
+    "event_time": {
+      "value": "19:00",
+      "source_quote": "Wednesday, May 1, 2024, 7:00 PM",
+      "page": 1,
+      "char_span": null
+    }
+  }
+}
