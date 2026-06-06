@@ -69,6 +69,7 @@ from typing import TYPE_CHECKING, Any
 
 from ingest.config import get_settings
 from ingest.extract.schemas import CivicEvent, RecordStatus
+from ingest.extract.ulurp_codes import ULURP_PATTERN as _ULURP_RE
 from ingest.observability import get_logger
 from ingest.sources.nyc import citations
 
@@ -166,6 +167,53 @@ def _first_ulurp(raw: str | None) -> str | None:
     return first or None
 
 
+# ULURP action code → canonical action_type (NYC-SPECIFIC lookup, Rule 4).
+# Codes per DCP application-number spec; see ingest/extract/ulurp_codes.py.
+_ULURP_ACTION_TYPES: dict[str, str] = {
+    "ZM": "rezoning",  # Zoning Map amendment
+    "ZR": "rezoning",  # Zoning Text amendment
+    "ZS": "special_permit",  # Zoning Special permit
+    "ZA": "authorization",  # Zoning Authorization
+    "ZC": "certification",  # Zoning Certification
+    "ZU": "urban_renewal",  # Urban Renewal
+    "BZ": "variance",  # BSA Variance
+    "BS": "special_permit",  # BSA Special permit
+    "EU": "urban_renewal",  # UDAAP
+    "ME": "environmental_review",
+    "PB": "site_selection",  # Site selection for public facility
+    "MX": "rezoning",  # Special Mixed-Use District
+}
+
+_LEAD_ACTION_KEYWORDS: list[tuple[str, str]] = [
+    ("zoning map", "rezoning"),
+    ("zoning text", "rezoning"),
+    ("rezoning", "rezoning"),
+    ("special permit", "special_permit"),
+    ("variance", "variance"),
+    ("authorization", "authorization"),
+    ("certification", "certification"),
+    ("urban renewal", "urban_renewal"),
+    ("udaap", "urban_renewal"),
+    ("environmental", "environmental_review"),
+    ("site selection", "site_selection"),
+]
+
+
+def _action_type_from_ulurp(ulurp_first: str | None, lead_action: str) -> str:
+    """Derive canonical action_type from ULURP action code, falling back to lead_action text."""
+    if ulurp_first:
+        m = _ULURP_RE.match(ulurp_first)
+        if m:
+            code = m.group("action")
+            if code in _ULURP_ACTION_TYPES:
+                return _ULURP_ACTION_TYPES[code]
+    lower = lead_action.lower()
+    for keyword, atype in _LEAD_ACTION_KEYWORDS:
+        if keyword in lower:
+            return atype
+    return "land_use_application"
+
+
 # --------------------------------------------------------------------------- #
 # Record -> CivicEvent mapper                                                  #
 # --------------------------------------------------------------------------- #
@@ -230,7 +278,7 @@ def _zap_project_to_event(rec: Mapping[str, Any], bbl_value: str | None = None) 
         source_record_id=project_id,
         bbl=bbl_value,
         project_thread_id=f"zap:{project_id}",  # Rule 7: one thread per project
-        action_type="rezoning",
+        action_type=_action_type_from_ulurp(ulurp_first, lead_action),
         title=title,
         summary=summary,
         address=address,
