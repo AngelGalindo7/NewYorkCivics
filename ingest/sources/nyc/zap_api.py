@@ -372,6 +372,11 @@ def iter_zap_events(
         log.debug("zap: since=%s ignored — snapshot-only feed, no incremental cursor", since)
 
     settings = get_settings()
+    if settings.socrata_app_token is None:
+        log.warning(
+            "SOCRATA_APP_TOKEN not set — Socrata requests are unauthenticated and may be"
+            " rate-limited. Get a free token at data.cityofnewyork.us."
+        )
     client = Socrata(SOCRATA_DOMAIN, settings.socrata_app_token, timeout=_TIMEOUT)
     scope = f"community_district = '{EAST_HARLEM_CD}'"
 
@@ -380,6 +385,7 @@ def iter_zap_events(
     offset = 0
     try:
         # --- Phase 1: collect all CD11 projects ---
+        log.info("zap: fetching projects with SoQL filter: %s", scope)
         while True:
             page = _get_page(client, DATASET_ZAP, where=scope, limit=_PAGE, offset=offset)
             if not page:
@@ -387,6 +393,16 @@ def iter_zap_events(
             project_rows.extend(page)
             offset += _PAGE
         log.info("zap: pulled %d project rows for %s", len(project_rows), EAST_HARLEM_CD)
+
+        if not project_rows:
+            sample = _get_page(client, DATASET_ZAP, where="1=1", limit=3, offset=0)
+            sample_vals = [str(r.get("community_district", "<missing>")) for r in sample]
+            log.warning(
+                "ZAP: 0 rows returned for filter '%s'. Sample community_district values"
+                " from dataset: %s. Adjust EAST_HARLEM_CD if the filter is wrong.",
+                scope,
+                sample_vals,
+            )
 
         # --- Phase 2: batch-fetch BBLs ---
         project_ids = tuple(
