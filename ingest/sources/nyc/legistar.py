@@ -35,7 +35,7 @@ if TYPE_CHECKING:
 # retry stack is needed only at fetch time — guard so the module imports clean in CI.
 try:
     import httpx
-    from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
+    from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
     _HTTPError = httpx.HTTPError
 except ImportError:
@@ -48,7 +48,7 @@ except ImportError:
 
         return _decorator
 
-    def retry_if_exception_type(*args: object, **kwargs: object) -> None:
+    def retry_if_exception(*args: object, **kwargs: object) -> None:
         return None
 
     def stop_after_attempt(*args: object, **kwargs: object) -> None:
@@ -85,11 +85,17 @@ _CD_HEARING_KEYWORDS = ("Land Use", "City Council", "Community Board")
 # ── HTTP helpers ──────────────────────────────────────────────────────────────
 
 
+def _should_retry(exc: BaseException) -> bool:
+    if httpx is not None and isinstance(exc, httpx.HTTPStatusError):
+        return exc.response.status_code >= 500
+    return isinstance(exc, _HTTPError)
+
+
 @retry(
     reraise=True,
     stop=stop_after_attempt(4),
     wait=wait_exponential(multiplier=1, min=1, max=10),
-    retry=retry_if_exception_type(_HTTPError),
+    retry=retry_if_exception(_should_retry),
 )
 def _get_page(client: httpx.Client, path: str, params: dict[str, Any]) -> list[dict[str, Any]]:
     resp = client.get(f"{_BASE}{path}", params=params)
@@ -102,8 +108,13 @@ def _get_all(path: str, **params: Any) -> list[dict[str, Any]]:
     if httpx is None:
         raise RuntimeError("httpx is not installed; install it with: pip install httpx")
     token = get_settings().legistar_token
-    if token:
-        params = {"token": token, **params}
+    if not token:
+        log.warning(
+            "LEGISTAR_TOKEN not set — all Legistar requests will 403; "
+            "register at webapi.legistar.com to get a free token"
+        )
+        return []
+    params = {"token": token, **params}
     rows: list[dict[str, Any]] = []
     skip = 0
     with httpx.Client(timeout=_TIMEOUT) as client:

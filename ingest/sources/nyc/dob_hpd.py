@@ -396,6 +396,11 @@ def iter_feed(
         ``(feed.source_id, primary_key)`` (Rule 15). No LLM (Rule 1).
     """
     settings = get_settings()
+    if settings.socrata_app_token is None:
+        log.warning(
+            "SOCRATA_APP_TOKEN not set — Socrata requests are unauthenticated and may be"
+            " rate-limited. Get a free token at data.cityofnewyork.us."
+        )
     client = Socrata(feed.domain, settings.socrata_app_token, timeout=_TIMEOUT)
 
     clauses = [f"({feed.scope_where})"]
