@@ -22,13 +22,21 @@ returns BBL directly. **NOT Google / Mapbox.**
 
 SETUP CAVEAT: GeoSupport is not pure pip. It requires the GeoSupport binaries
 plus environment variables `GEOSUPPORT_GEOFILES` and
-`GEOSUPPORT_GS_LIBRARY_PATH`. ``geocode()`` returns ``GeoResult(ok=False)``
-when binaries are absent so callers quarantine the record rather than crashing.
+`GEOSUPPORT_GS_LIBRARY_PATH`. When binaries are absent ``geocode()``
+automatically falls back to the **NYC Planning Labs GeoSearch API**
+(https://geosearch.planninglabs.nyc/v2/search) — same underlying data as
+GeoSupport, accessible over HTTP, no binary install required. The fallback uses
+only stdlib ``urllib`` so it adds no pip dependencies. If GeoSearch also fails
+the call returns ``GeoResult(ok=False)`` so callers quarantine rather than
+crashing.
 """
 
 from __future__ import annotations
 
+import json
 import re
+import urllib.parse
+import urllib.request
 from dataclasses import dataclass
 from typing import Any
 
@@ -138,6 +146,75 @@ def _get_gs() -> Any:
     return _GS
 
 
+_GEOSEARCH_URL = "https://geosearch.planninglabs.nyc/v2/search"
+
+
+def _geosearch_fallback(address: str) -> GeoResult:
+    """Call the NYC Planning Labs GeoSearch HTTP API and return a GeoResult.
+
+    Used when GeoSupport binaries are absent — same data source, zero extra
+    deps (stdlib urllib only).  No retry or caching; those are Phase 2.
+    """
+    params = urllib.parse.urlencode({"text": address, "size": "1"})
+    url = f"{_GEOSEARCH_URL}?{params}"
+    try:
+        with urllib.request.urlopen(url, timeout=5) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+    except Exception as exc:
+        return GeoResult(ok=False, reason=f"GeoSearch: {exc}")
+
+    features = payload.get("features") or []
+    if not features:
+        return GeoResult(ok=False, reason="GeoSearch: no features returned")
+
+    props = features[0].get("properties") or {}
+    addendum = props.get("addendum") or {}
+    pad = addendum.get("pad") or {}
+
+    bbl_raw = pad.get("bbl") or ""
+    # bbl from GeoSearch is a 10-digit string; keep only digits and zero-pad back to 10
+    bbl_digits = re.sub(r"\D", "", str(bbl_raw))
+    bbl = bbl_digits.zfill(10) if bbl_digits else None
+
+    if not bbl:
+        return GeoResult(ok=False, reason="GeoSearch: response contained no BBL")
+
+    bin_raw = pad.get("bin") or ""
+    bin_val = re.sub(r"\D", "", str(bin_raw)) or None
+
+    cd_raw = pad.get("cd") or ""
+    community_district = str(cd_raw).strip() or None
+
+    geometry = features[0].get("geometry") or {}
+    coords = geometry.get("coordinates") or []
+    try:
+        lon, lat = float(coords[0]), float(coords[1])
+    except (IndexError, TypeError, ValueError):
+        lat = lon = None
+
+    log.debug(
+        "geosearch_fallback(%r) -> BBL=%s CD=%s lat=%s lon=%s",
+        address,
+        bbl,
+        community_district,
+        lat,
+        lon,
+    )
+    return GeoResult(
+        ok=True,
+        bbl=bbl,
+        bin=bin_val,
+        community_district=community_district,
+        latitude=lat,
+        longitude=lon,
+    )
+
+
+def is_geosupport_available() -> bool:
+    """Return True if GeoSupport binaries are configured and initialized."""
+    return _get_gs() is not None
+
+
 def geocode(address: str) -> GeoResult:
     """Resolve ``address`` to NYC identifiers via GeoSupport (Function 1B).
 
@@ -145,23 +222,17 @@ def geocode(address: str) -> GeoResult:
     unresolved/ambiguous address returns ``GeoResult(ok=False, reason=...)`` so
     the caller quarantines the record (Rule 2). Never invents a BBL.
 
-    Returns ``ok=False`` (reason: "GeoSupport not configured") when the
-    GeoSupport binaries or GEOFILES env are absent — routes to quarantine rather
-    than crashing the pipeline. Set up GeoSupport then re-run to resolve.
-
-    Requires GeoSupport binaries + GEOSUPPORT_* env (see module docstring and
-    .env.example).
+    Primary path: GeoSupport binaries (requires GEOSUPPORT_GEOFILES +
+    GEOSUPPORT_GS_LIBRARY_PATH; see module docstring and .env.example).
+    Fallback path: NYC Planning Labs GeoSearch HTTP API — used automatically
+    when GeoSupport binaries are absent, no extra deps.
     """
     gs = _get_gs()
     if gs is None:
-        return GeoResult(
-            ok=False,
-            reason=(
-                "GeoSupport not configured: install binaries and set "
-                "GEOSUPPORT_GEOFILES + GEOSUPPORT_GS_LIBRARY_PATH (see .env.example)"
-            ),
-        )
+        log.debug("GeoSupport absent; falling back to GeoSearch HTTP API for %r", address)
+        return _geosearch_fallback(address)
 
+    log.debug("Using GeoSupport for %r", address)
     borough_code = _detect_borough(address)
     house_number, street_name = _split_address(address)
 

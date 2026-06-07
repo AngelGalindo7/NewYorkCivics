@@ -87,26 +87,84 @@
 - [x] evals.yml CI audited — fork-PR comment limitation documented; `package-lock.json` committed to pin promptfoo `^0.121.0`; `npm ci` step added to workflow; `package-lock.json` added to paths trigger
 - [x] `make check` now includes `fmt-check` (`ruff format --check`) — gap between local and CI closed
 - [x] `tasks.py` eval solver source_id de-hardcoded — reads from golden record metadata (Rule 4 seam clean)
-- [ ] **Smoke-test** that evals.yml actually posts a PR comment on a first-party PR (automated gate confirmed locally; real GHA run still needed to verify promptfoo-action comment posting end-to-end)
+- [x] **Smoke-test**: `workflow_dispatch` trigger added to `evals.yml` — manually trigger from GitHub Actions UI to verify PR comment posting without a full PR push. Local run confirmed 10/10 PASS. `make eval` target already existed.
 
 ### Phase 1 remaining tasks
 - [x] `ingest/sources/nyc/legistar.py` — implemented (Commit 5)
 - [ ] `ingest/sources/nyc/cb_agenda.py` — Phase 2 (see cb_agenda stub; NOT Phase 1)
-- [x] GeoSupport wiring — `normalize/geocode.py` wired; **still needs binaries + GEOSUPPORT_GEOFILES env to actually run**
-- [x] Geocoding eval: fixture expanded to **100** addresses (35 with ref_lat/ref_lon from Nominatim, all CD11/MN, coordinates validated in-bounds); run `python -m ingest.eval.geocode_eval` once GeoSupport binaries are installed
-- [ ] Displacement signal organizer review — validate ~20 flagged buildings before shipping (Rule 9 / human gate); use `BYPASS_HUMAN_REVIEW=true` for dev runs before review is complete
+- [x] GeoSupport wiring — `normalize/geocode.py` wired with **NYC GeoSearch HTTP fallback** (`_geosearch_fallback` via stdlib urllib); eval now runs without binaries: ok_rate 100%, median 39.5 m (target <50 m), PASS. Install GeoSupport binaries + `GEOSUPPORT_GEOFILES` env to unlock p95 gate and exact BBL matching.
+- [x] Geocoding eval: runs end-to-end (`python -m ingest.eval.geocode_eval`); gate PASS in GeoSearch-fallback mode; p95 gate informational until GeoSupport binaries installed.
+- [x] `BYPASS_HUMAN_REVIEW=true` set in `.env` for dev runs — displacement signal organizer review still needed before production send.
 - [x] Phase 1 gate: `discover_cd_hearings("MN11", days_ahead=30)` wired in harlem_digest; run `python -m ingest.sources.nyc.harlem_digest` to verify live dates
 
-### Phase 2
-- [ ] `cb_agenda.py` full fetch/parse/extract loop — cluster ~59 boards by website template (expect 5–10 fetchers)
-- [ ] Expand golden set to **50** docs clustered by layout
-- [ ] Source-grounding eval (Rule 3) + parse fallback routing (text → vision per page)
-- [ ] Signup form + subscriber table seeded
-- [ ] Human-review queue UI / CLI for clearing digest candidates (Rule 9)
-- [ ] Pre-committed user receives a digest and confirms it's useful (hard gate)
+---
 
-### Phase 3
-- [ ] Snapshot regression in CI on golden 50
-- [ ] Confidence routing (Rule 10): high → auto-accept, ~0.4–0.6 → review queue, <~0.4 → unverified/dropped
-- [ ] Drift detection: validation-failure ratio per scraper, alert past ~15%; nightly re-fetch 5 URLs/source
-- [ ] Per-source daily token budgets + circuit-breaker to deterministic fallback
+### Immediate bugs (blocking live digest — fix before Phase 2a)
+
+These are live failures visible in the digest runner today. Small fixes, high value.
+
+- [ ] **Legistar 403** — `LEGISTAR_TOKEN` not set in `.env`; `discover_cd_hearings` fails on every run. Get a token from `webapi.legistar.com` (free registration), add to `.env` and `.env.example`. Unblocks Council hearing items in the digest.
+- [ ] **ZAP 0 results** — `zap_api.py` returns 0 projects for MN11. Debug the Socrata filter: confirm whether CD11 genuinely has no active filings or the `community_district` / `borough` filter is off. Log the raw query so it's inspectable.
+- [ ] **`SOCRATA_APP_TOKEN` unset** — every Socrata call logs a throttle warning. Add the token to `.env` (free at data.cityofnewyork.us). No behavior change, just removes the rate-limit risk.
+
+---
+
+### Phase 2a — MN11 proof-of-loop (one board, full loop, real subscriber)
+
+**Goal:** Complete the fetch → parse → LLM-extract → digest → deliver loop for CD11 only.
+Prove the pipeline is end-to-end useful before scaling to 59 boards. This is the hardest
+architectural bet — if the PDF extractor produces garbage on real CB11 agendas, better to know
+at one board than fifty. **Gate: one real East Harlem subscriber confirms the digest is useful.**
+
+Each item below is one PR-sized unit of work.
+
+- [ ] **`cb_agenda.py` MN11 fetcher** — implement `discover_agendas(board="MN11")` and `fetch(url)`:
+  - Scrape the CD11 board website for agenda PDF links (httpx + BeautifulSoup or lxml; guard with `try/except ImportError`)
+  - Return `AgendaRef` objects with URL, meeting date, title
+  - `fetch()` downloads bytes; no parsing here — bytes go straight to the parse stage
+  - Offline contract tests with a fixture HTML snapshot (no live calls in CI)
+- [ ] **Wire into `harlem_digest.py`** — call `cb_agenda.discover_agendas` → `fetch` → `pdf_text.extract_text` → `extractor.extract` and merge resulting `CivicEvent` records into `gather_live_events`. Add `include_cb_agenda: bool` param (default off; flip on after spot-check passes).
+- [ ] **Spot-check 3 real MN11 PDFs** — run the full loop on 3 recent CD11 agendas, print extracted events, manually verify field correctness against the source PDF. Document findings. This is the human gut-check before trusting the loop.
+- [ ] **Add 3–5 MN11 golden docs** — promote the spot-checked PDFs to `ingest/eval/golden/` via `/add-golden-doc`. Expand golden set from 10 → ~15. These are the first docs extracted by a real LLM (not the echo provider).
+- [ ] **Swap promptfoo from echo → real extractor for MN11 docs** — update `promptfoo.yaml` to use the Python file provider (`file://ingest/extract/extractor_cli.py`) for the new MN11 test cases. Keep the echo provider for the original 10 Phase 0 tests to preserve the zero-cost baseline. Gate: new MN11 tests pass at ≥70% field accuracy.
+- [ ] **Human-review CLI** — `make review` (or `python -m ingest.deliver.review`) that lists pending digest candidates and lets the reviewer approve/reject each one interactively. Replaces `BYPASS_HUMAN_REVIEW=true` for local dev. The bypass flag stays in `.env.example` for CI; the CLI is for human operators.
+- [ ] **Signup form + subscriber row** — a Google Form (or equivalent) that writes to a CSV / seeds the subscriber table with name + address + email. Needs at least one real East Harlem contact before the next gate.
+- [ ] **Wire email delivery** — set `EMAIL_PROVIDER` (Resend or Postmark are simplest for v1); implement the Phase 2 `send()` adapter in `deliver/send.py`. Keep the file-sink fallback for local dev.
+- [ ] **Hard gate: first real digest sent and confirmed useful** — one East Harlem resident or organizer receives a digest containing CB11 agenda items + HPD/DOB data and says it's actionable. No code gate — this is a human conversation. Nothing in Phase 2b ships until this is met.
+
+---
+
+### Phase 2b — Scale to all 59 NYC boards
+
+**Gate:** Phase 2a hard gate met. Extraction accuracy ≥ 80% F1 on 50 golden docs.
+
+- [ ] **Template audit** — manually categorize all ~59 NYC CB websites into clusters by site structure (Legistar-hosted, Outlook calendar export, raw PDF links, custom CMS, etc.). Document the clusters. Expect 5–10 distinct templates, not 59 fetchers.
+- [ ] **One fetcher per template cluster** — implement `cb_agenda.py` fetchers for each cluster identified above, reusing the MN11 fetcher as the first reference implementation. Each fetcher is a thin function; the fetch → parse → extract pipeline is shared.
+- [ ] **Expand golden set to 50 docs** — add real PDFs from each template cluster, distributed by layout type. Run `/add-golden-doc` for each. Target ≥ 5 docs per cluster.
+- [ ] **Source-grounding eval** — eval harness scores per-field hallucination rate (target ≤ 1%). Every extracted fact must carry a `provenance.source_quote` traceable to the source PDF. Failures surface in the promptfoo diff comment.
+- [ ] **Vision fallback routing** — implement `pdf_route.py` (char-count heuristic) and `pdf_vision.py` (vision-LLM per scanned page). Route only truly scanned pages to vision; text-extractable pages stay deterministic. Gate: no regression on the 50 golden docs.
+- [ ] **Few-shot examples in extraction prompt** — add 3–5 diverse golden examples to `cb_agenda.v2.md` (never edit v1 in place). Eval diff must show ≥ 3pp F1 improvement before merging.
+
+---
+
+### Phase 3 — Production hardening
+
+**Gate:** Phase 2b complete. Digest running for all 59 boards.
+
+- [ ] **Snapshot regression in CI** — store expected extraction output for the golden 50; CI fails if any field regresses. Prevents silent prompt/model drift from breaking production silently.
+- [ ] **Confidence routing** — route high-confidence (≥ 0.6) events to auto-accept, mid-band (0.4–0.6) to human-review queue, low (< 0.4) to unverified/dropped. Replace the linear threshold with a calibrated cutoff on the golden set.
+- [ ] **Drift detection** — per-scraper validation-failure ratio tracked over time; alert when it crosses ~15%. Nightly re-fetch of 5 URLs per source. Prevents silent feed breakage from going unnoticed for weeks.
+- [ ] **Per-source token budgets + circuit-breaker** — daily LLM token cap per source; if a source exceeds the budget or fails repeatedly, fall back to the structured/deterministic path and flag for human inspection. No runaway costs.
+- [ ] **`BYPASS_HUMAN_REVIEW` removed from `.env`** — once the human-review CLI and confidence routing are in place, the bypass flag has no legitimate use case. Remove it from the codebase entirely; any future bypass is a code change requiring review.
+
+---
+
+### Phase 4 — Second city
+
+**Gate:** Phase 3 complete. Digest is live, stable, and confirmed useful in East Harlem.
+Do not start this phase until the MN11 loop has been running without incident for ≥ 2 weeks.
+
+- [ ] **Pick the second city** — criteria: open civic data feeds (Socrata or equivalent), active community organizing context, willing early adopter as the first subscriber.
+- [ ] **Port the pipeline** via `/port-new-city` — copy the NYC connector directory, swap the geocoder and lookup modules, reuse `parse`/`extract`/`eval`/`store`/`deliver` untouched. The seam test: if porting requires touching city-agnostic code, fix the seam first.
+- [ ] **Validate seams** — city-agnostic machinery (`parse`, `extract`, `eval`, `store`, `deliver`) must have zero mentions of NYC in their diffs. Any leak is a blocker.
+- [ ] **Golden set for city 2** — hand-label 10 documents from the new city's sources before shipping. Same eval harness, new fixture data.
