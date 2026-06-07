@@ -1,0 +1,59 @@
+{
+  "_layout": "single_column",
+  "_source_text": "MANHATTAN COMMUNITY BOARD 7\nLand Use Committee Meeting\nMonday, April 8, 2024, 6:30 PM\n250 West 87th Street, New York, NY 10024\n\nAGENDA\n\nItem 1. ULURP No. N 240156 ZRM — Zoning Text Amendment\n\nThe Department of City Planning seeks authorization for a zoning text amendment affecting special regulations for ground-floor retail uses on the Upper West Side. ULURP No. N 240156 ZRM would modify Appendix F of the Zoning Resolution to update the list of street frontages subject to mandatory retail requirements.\n\nThis is an application by the City of New York; no specific property address applies. Written comments are due by April 22, 2024.",
+  "source_id": "nyc_cb_agenda",
+  "source_record_id": "cb-mn07-2024-04-08-item-1",
+  "action_type": "text_amendment",
+  "title": "ULURP N 240156 ZRM — Zoning Text Amendment, Upper West Side retail frontages",
+  "summary": "Community Board 7 (Manhattan) to hear a DCP zoning text amendment modifying mandatory ground-floor retail frontage requirements on the Upper West Side.",
+  "event_date": "2024-04-08",
+  "event_time": "18:30",
+  "deadline": "2024-04-22",
+  "address": null,
+  "bbl": null,
+  "ulurp_number": "N 240156 ZRM",
+  "ceqr_number": null,
+  "zoning_from": null,
+  "zoning_to": null,
+  "confidence": 0.92,
+  "status": "accepted",
+  "extras": {},
+  "provenance": {
+    "title": {
+      "value": "ULURP N 240156 ZRM — Zoning Text Amendment, Upper West Side retail frontages",
+      "source_quote": "Item 1. ULURP No. N 240156 ZRM — Zoning Text Amendment",
+      "page": 1,
+      "char_span": null
+    },
+    "action_type": {
+      "value": "text_amendment",
+      "source_quote": "seeks authorization for a zoning text amendment affecting special regulations for ground-floor retail uses",
+      "page": 1,
+      "char_span": null
+    },
+    "ulurp_number": {
+      "value": "N 240156 ZRM",
+      "source_quote": "ULURP No. N 240156 ZRM would modify Appendix F of the Zoning Resolution",
+      "page": 1,
+      "char_span": null
+    },
+    "event_date": {
+      "value": "2024-04-08",
+      "source_quote": "Monday, April 8, 2024, 6:30 PM",
+      "page": 1,
+      "char_span": null
+    },
+    "event_time": {
+      "value": "18:30",
+      "source_quote": "Monday, April 8, 2024, 6:30 PM",
+      "page": 1,
+      "char_span": null
+    },
+    "deadline": {
+      "value": "2024-04-22",
+      "source_quote": "Written comments are due by April 22, 2024.",
+      "page": 1,
+      "char_span": null
+    }
+  }
+}

@@ -1,0 +1,65 @@
+{
+  "_layout": "single_column",
+  "_source_text": "MANHATTAN COMMUNITY BOARD 5\nLand Use, Housing, and Zoning Committee\nWednesday, March 20, 2024, 6:00 PM\n450 Seventh Avenue, Suite 2109, New York, NY 10123\n\nAGENDA\n\nItem 2. ULURP No. C 240089 ZSM — Special Permit Application, 220 West 42nd Street\n\nThe applicant, Times Square Hotel Associates LLC, seeks a special permit pursuant to ZR §74-533 to allow a hotel use with ground-floor retail at 220 West 42nd Street, New York, NY 10036. The site is currently zoned C6-4X and the special permit would allow floor area and use modifications under the Special Midtown District regulations.\n\nThe Committee will take public testimony and forward a recommendation to the full Board. The public comment deadline is April 3, 2024.",
+  "source_id": "nyc_cb_agenda",
+  "source_record_id": "cb-mn05-2024-03-20-item-2",
+  "action_type": "special_permit",
+  "title": "ULURP C 240089 ZSM — Special Permit, 220 West 42nd Street",
+  "summary": "Community Board 5 (Manhattan) to hear a special permit application for a hotel with ground-floor retail at 220 West 42nd Street under Special Midtown District regulations.",
+  "event_date": "2024-03-20",
+  "event_time": "18:00",
+  "deadline": "2024-04-03",
+  "address": "220 West 42nd Street, New York, NY 10036",
+  "bbl": null,
+  "ulurp_number": "C 240089 ZSM",
+  "ceqr_number": null,
+  "zoning_from": null,
+  "zoning_to": null,
+  "confidence": 0.93,
+  "status": "accepted",
+  "extras": {},
+  "provenance": {
+    "title": {
+      "value": "ULURP C 240089 ZSM — Special Permit, 220 West 42nd Street",
+      "source_quote": "Item 2. ULURP No. C 240089 ZSM — Special Permit Application, 220 West 42nd Street",
+      "page": 1,
+      "char_span": null
+    },
+    "action_type": {
+      "value": "special_permit",
+      "source_quote": "seeks a special permit pursuant to ZR §74-533 to allow a hotel use with ground-floor retail",
+      "page": 1,
+      "char_span": null
+    },
+    "ulurp_number": {
+      "value": "C 240089 ZSM",
+      "source_quote": "Item 2. ULURP No. C 240089 ZSM — Special Permit Application, 220 West 42nd Street",
+      "page": 1,
+      "char_span": null
+    },
+    "address": {
+      "value": "220 West 42nd Street, New York, NY 10036",
+      "source_quote": "to allow a hotel use with ground-floor retail at 220 West 42nd Street, New York, NY 10036",
+      "page": 1,
+      "char_span": null
+    },
+    "event_date": {
+      "value": "2024-03-20",
+      "source_quote": "Wednesday, March 20, 2024, 6:00 PM",
+      "page": 1,
+      "char_span": null
+    },
+    "event_time": {
+      "value": "18:00",
+      "source_quote": "Wednesday, March 20, 2024, 6:00 PM",
+      "page": 1,
+      "char_span": null
+    },
+    "deadline": {
+      "value": "2024-04-03",
+      "source_quote": "The public comment deadline is April 3, 2024.",
+      "page": 1,
+      "char_span": null
+    }
+  }
+}

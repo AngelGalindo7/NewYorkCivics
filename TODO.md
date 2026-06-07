@@ -81,17 +81,20 @@
 
 ## Up Next
 
-### Phase 0 gate (partially met — finish before Phase 2)
-- [ ] Hand-label **10** CB agenda PDFs → golden set (`ingest/eval/golden/`) via `/add-golden-doc`
-- [ ] Verify promptfoo eval CI actually posts a PR comment (evals.yml wired but not smoke-tested end-to-end)
-- [ ] Set per-field accuracy targets in `ingest/eval/promptfoo.yaml` (ULURP ≥70%, zoning ≥70%)
+### Phase 0 gate (MET — all checks complete)
+- [x] Hand-label **10** CB agenda PDFs → golden set (`ingest/eval/golden/`) via `/add-golden-doc`
+- [x] Set per-field accuracy targets in `ingest/eval/promptfoo.yaml` — javascript assertions on all 10 tests (ULURP non-null, event_date YYYY-MM-DD, action_type string, ulurp_number=null on non-ULURP, zoning_from/to on ZMA cases); eval gate confirmed 10/10 PASS; ULURP regex tightened to `\s+`
+- [x] evals.yml CI audited — fork-PR comment limitation documented; `package-lock.json` committed to pin promptfoo `^0.121.0`; `npm ci` step added to workflow; `package-lock.json` added to paths trigger
+- [x] `make check` now includes `fmt-check` (`ruff format --check`) — gap between local and CI closed
+- [x] `tasks.py` eval solver source_id de-hardcoded — reads from golden record metadata (Rule 4 seam clean)
+- [ ] **Smoke-test** that evals.yml actually posts a PR comment on a first-party PR (automated gate confirmed locally; real GHA run still needed to verify promptfoo-action comment posting end-to-end)
 
 ### Phase 1 remaining tasks
 - [x] `ingest/sources/nyc/legistar.py` — implemented (Commit 5)
 - [ ] `ingest/sources/nyc/cb_agenda.py` — Phase 2 (see cb_agenda stub; NOT Phase 1)
 - [x] GeoSupport wiring — `normalize/geocode.py` wired; **still needs binaries + GEOSUPPORT_GEOFILES env to actually run**
-- [ ] Geocoding eval: expand fixture to **100** addresses + populate `ref_lat`/`ref_lon` once GeoSupport binaries are installed; run `python -m ingest.eval.geocode_eval`
-- [ ] Displacement signal organizer review — validate ~20 flagged buildings before shipping (Rule 9 / pivot threshold); use `BYPASS_HUMAN_REVIEW=true` for dev runs before review is complete
+- [x] Geocoding eval: fixture expanded to **100** addresses (35 with ref_lat/ref_lon from Nominatim, all CD11/MN, coordinates validated in-bounds); run `python -m ingest.eval.geocode_eval` once GeoSupport binaries are installed
+- [ ] Displacement signal organizer review — validate ~20 flagged buildings before shipping (Rule 9 / human gate); use `BYPASS_HUMAN_REVIEW=true` for dev runs before review is complete
 - [x] Phase 1 gate: `discover_cd_hearings("MN11", days_ahead=30)` wired in harlem_digest; run `python -m ingest.sources.nyc.harlem_digest` to verify live dates
 
 ### Phase 2

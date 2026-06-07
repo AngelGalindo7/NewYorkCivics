@@ -20,6 +20,7 @@ as plain fields/JSONB from upstream Normalize.
 
 from __future__ import annotations
 
+import json
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -27,13 +28,26 @@ if TYPE_CHECKING:
     # not import it at module load so the package imports before deps install.
     from psycopg import Connection
 
+# Canonical columns that map directly from the event dict.
+_EVENT_COLUMNS = frozenset(
+    {
+        "title",
+        "action_type",
+        "address",
+        "ulurp_number",
+        "ceqr_number",
+        "zoning_from",
+        "zoning_to",
+        "event_date",
+        "event_time",
+        "deadline",
+        "summary",
+        "community_district",
+        "zip",
+    }
+)
 
-# TODO Phase 1: read DATABASE_URL via ingest.config.get_settings() (Rule 6), not from
-# os.environ directly, so tests can inject a connection string.
-DATABASE_URL_ENV = "DATABASE_URL"
-
-# Path to the DDL this module targets (see schema.sql in this directory).
-SCHEMA_SQL_PATH = "ingest/store/schema.sql"
+_VALID_STATUSES: frozenset[str] = frozenset({"accepted", "review", "unverified"})
 
 
 def upsert_event(
@@ -56,10 +70,86 @@ def upsert_event(
     ``confidence``/``status`` drive routing (Rule 10). Per-source novel fields go
     in ``extras`` JSONB — no per-source columns (one canonical table).
     """
-    raise NotImplementedError(
-        "Phase 1: UPSERT into events ON CONFLICT (source_id, source_record_id); "
-        "see schema.sql. Persist provenance/confidence/status/extras as JSONB."
+    if status not in _VALID_STATUSES:
+        raise ValueError(f"Invalid status {status!r}; must be one of {sorted(_VALID_STATUSES)}")
+
+    # Split event keys into canonical columns vs. overflow into extras.
+    canonical: dict[str, Any] = {}
+    overflow: dict[str, Any] = {}
+    for key, value in event.items():
+        if key in _EVENT_COLUMNS:
+            canonical[key] = value
+        elif key not in ("latitude", "longitude"):
+            overflow[key] = value
+
+    unexpected = canonical.keys() - _EVENT_COLUMNS
+    if unexpected:
+        raise ValueError(f"Event dict contains keys not in _EVENT_COLUMNS: {sorted(unexpected)}")
+
+    # Merge explicit extras kwarg on top of overflow (explicit wins on collision).
+    merged_extras: dict[str, Any] = {**overflow, **(extras or {})}
+
+    latitude = event.get("latitude")
+    longitude = event.get("longitude")
+    has_geom = latitude is not None and longitude is not None
+
+    # Build the INSERT column list and values dynamically so NULL columns are
+    # still written explicitly — keeps ON CONFLICT DO UPDATE simple.
+    insert_cols = [
+        "source_id",
+        "source_record_id",
+        "bbl",
+        "project_thread_id",
+        "confidence",
+        "status",
+        "provenance",
+        "extras",
+        *canonical.keys(),
+    ]
+    insert_values: list[Any] = [
+        source_id,
+        source_record_id,
+        bbl,
+        project_thread_id,
+        confidence,
+        status,
+        json.dumps(provenance),
+        json.dumps(merged_extras),
+        *canonical.values(),
+    ]
+
+    if has_geom:
+        insert_cols.append("geom")
+
+    placeholders = ", ".join(
+        ["%s"] * len(insert_values)
+        + (["ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography"] if has_geom else [])
     )
+    if has_geom:
+        insert_values.extend([longitude, latitude])
+
+    # ON CONFLICT: update every non-key column plus updated_at.
+    update_cols = [c for c in insert_cols if c not in ("source_id", "source_record_id")]
+    update_clauses = ", ".join(
+        "provenance = events.provenance || EXCLUDED.provenance"
+        if c == "provenance"
+        else f"{c} = EXCLUDED.{c}"
+        for c in update_cols
+    )
+    update_clauses += ", updated_at = now()"
+
+    sql = (
+        f"INSERT INTO events ({', '.join(insert_cols)}) "
+        f"VALUES ({placeholders}) "
+        f"ON CONFLICT (source_id, source_record_id) DO UPDATE SET {update_clauses} "
+        f"RETURNING id"
+    )
+
+    with conn.cursor() as cur:
+        cur.execute(sql, insert_values)
+        row = cur.fetchone()
+
+    return str(row[0])
 
 
 def write_quarantine(
@@ -76,9 +166,17 @@ def write_quarantine(
     written here with a human-readable ``reason`` and the ``raw`` payload, NEVER
     guessed into ``events``. Worked via the triage-quarantine skill.
     """
-    raise NotImplementedError(
-        "Phase 1: INSERT into quarantine (source_id, source_record_id, reason, raw)."
+    sql = (
+        "INSERT INTO quarantine (source_id, source_record_id, reason, raw) "
+        "VALUES (%s, %s, %s, %s) "
+        "RETURNING id"
     )
+
+    with conn.cursor() as cur:
+        cur.execute(sql, [source_id, source_record_id, reason, json.dumps(raw)])
+        row = cur.fetchone()
+
+    return str(row[0])
 
 
 def get_or_create_thread(
@@ -94,7 +192,33 @@ def get_or_create_thread(
     thread id links them into one story. Match on BBL and/or ULURP number; create
     a new thread when no match exists.
     """
-    raise NotImplementedError(
-        "Phase 1: SELECT existing thread by bbl/ulurp_number, else INSERT a new "
-        "project_threads row; return its id."
-    )
+    if bbl is None and ulurp_number is None:
+        raise ValueError("At least one of bbl or ulurp_number must be provided")
+
+    # Build a WHERE clause that OR-joins whichever keys are present.
+    conditions: list[str] = []
+    params: list[Any] = []
+    if bbl is not None:
+        conditions.append("bbl = %s")
+        params.append(bbl)
+    if ulurp_number is not None:
+        conditions.append("ulurp_number = %s")
+        params.append(ulurp_number)
+
+    where = " OR ".join(conditions)
+    select_sql = f"SELECT id FROM project_threads WHERE {where} LIMIT 1"
+
+    # Phase 2: this SELECT→INSERT sequence has a TOCTOU race under concurrent workers.
+    # Fix with serializable isolation or a UNIQUE constraint + INSERT ... ON CONFLICT.
+    with conn.cursor() as cur:
+        cur.execute(select_sql, params)
+        row = cur.fetchone()
+        if row is not None:
+            return str(row[0])
+
+        # No existing thread — insert one.
+        insert_sql = "INSERT INTO project_threads (bbl, ulurp_number) VALUES (%s, %s) RETURNING id"
+        cur.execute(insert_sql, [bbl, ulurp_number])
+        row = cur.fetchone()
+
+    return str(row[0])

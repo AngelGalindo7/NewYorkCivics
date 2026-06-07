@@ -1,0 +1,53 @@
+{
+  "_layout": "single_column",
+  "_source_text": "BRONX COMMUNITY BOARD 9\nLand Use Committee Meeting\nMonday, March 18, 2024, 6:30 PM\n1932 Arthur Avenue, Bronx, NY 10457\n\nAGENDA\n\nItem 4. BSA Calendar No. 2024-0312-BZ — Variance Application, 455 East 183rd Street\n\nThe applicant, Fordham Towers LLC, seeks a variance from the Board of Standards and Appeals for the property at 455 East 183rd Street, Bronx, NY 10458. The application requests relief from the maximum building height limitations of the R6 district to permit a six-story mixed-use building. No ULURP application is associated with this BSA matter.\n\nCommunity Board 9 will hear public testimony on March 18, 2024, at 6:30 PM. The BSA public hearing is scheduled for April 16, 2024.",
+  "source_id": "nyc_cb_agenda",
+  "source_record_id": "cb-bx09-2024-03-18-item-4",
+  "action_type": "variance",
+  "title": "BSA Variance Application — 455 East 183rd Street",
+  "summary": "Community Board 9 (Bronx) to hear testimony on a Board of Standards and Appeals variance application at 455 East 183rd Street seeking height relief in an R6 district for a six-story mixed-use building.",
+  "event_date": "2024-03-18",
+  "event_time": "18:30",
+  "deadline": null,
+  "address": "455 East 183rd Street, Bronx, NY 10458",
+  "bbl": null,
+  "ulurp_number": null,
+  "ceqr_number": null,
+  "zoning_from": null,
+  "zoning_to": null,
+  "confidence": 0.88,
+  "status": "accepted",
+  "extras": {"bsa_calendar": "2024-0312-BZ"},
+  "provenance": {
+    "title": {
+      "value": "BSA Variance Application — 455 East 183rd Street",
+      "source_quote": "BSA Calendar No. 2024-0312-BZ — Variance Application, 455 East 183rd Street",
+      "page": 1,
+      "char_span": null
+    },
+    "action_type": {
+      "value": "variance",
+      "source_quote": "seeks a variance from the Board of Standards and Appeals for the property at 455 East 183rd Street",
+      "page": 1,
+      "char_span": null
+    },
+    "address": {
+      "value": "455 East 183rd Street, Bronx, NY 10458",
+      "source_quote": "seeks a variance from the Board of Standards and Appeals for the property at 455 East 183rd Street, Bronx, NY 10458",
+      "page": 1,
+      "char_span": null
+    },
+    "event_date": {
+      "value": "2024-03-18",
+      "source_quote": "Community Board 9 will hear public testimony on March 18, 2024, at 6:30 PM.",
+      "page": 1,
+      "char_span": null
+    },
+    "event_time": {
+      "value": "18:30",
+      "source_quote": "Community Board 9 will hear public testimony on March 18, 2024, at 6:30 PM.",
+      "page": 1,
+      "char_span": null
+    }
+  }
+}

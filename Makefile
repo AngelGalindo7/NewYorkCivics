@@ -2,12 +2,13 @@
 # abstraction — Rule 16-safe). On Windows without `make`, run the commands directly;
 # they are mirrored in README.md. Run inside an activated .venv.
 
-.PHONY: setup lint fmt typecheck test eval check help
+.PHONY: setup lint fmt typecheck test eval inspect-eval check help
 
 help:  ## list targets
-	@echo "setup lint fmt typecheck test eval check"
+	@echo "setup lint fmt typecheck test eval inspect-eval check"
 
 setup:      ## install runtime + dev/eval deps
+	pip install -e .
 	pip install -r requirements.txt -r requirements-dev.txt
 
 lint:       ## ruff lint
@@ -15,6 +16,9 @@ lint:       ## ruff lint
 
 fmt:        ## ruff format (write)
 	ruff format ingest
+
+fmt-check:  ## ruff format --check (CI mode, no writes)
+	ruff format --check ingest
 
 typecheck:  ## mypy
 	mypy ingest
@@ -25,4 +29,7 @@ test:       ## pytest (smoke + unit)
 eval:       ## promptfoo PR sample (node CLI, not pip)
 	npx promptfoo eval -c ingest/eval/promptfoo.yaml
 
-check: lint typecheck test  ## lint + types + tests
+inspect-eval:  ## Inspect AI offline trajectory evals (needs GOOGLE_API_KEY)
+	PYTHONPATH=. inspect eval ingest/eval/tasks.py
+
+check: lint fmt-check typecheck test  ## lint + format-check + types + tests

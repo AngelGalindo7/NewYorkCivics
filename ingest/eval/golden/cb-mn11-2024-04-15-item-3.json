@@ -1,0 +1,77 @@
+{
+  "_layout": "single_column",
+  "_source_text": "MANHATTAN COMMUNITY BOARD 11\nLand Use Committee Meeting\nMonday, April 15, 2024, 6:30 PM\n1664 Park Avenue, New York, NY 10035\n\nAGENDA\n\nItem 3. ULURP No. C 240045 ZMM — Zoning Map Amendment, 2289 Second Avenue\n\nThe applicant, East River Realty LLC, seeks approval of a zoning map amendment for the property at 2289 Second Avenue, New York, NY 10035 (Block 1823, Lot 5). The application proposes to rezone the site from R8 to R9A to facilitate the development of a 25-story mixed-use residential building containing approximately 280 dwelling units, including 20% affordable units.\n\nThe Committee will hear testimony from the applicant and members of the public. Written comments may be submitted to the Board office by April 29, 2024.",
+  "source_id": "nyc_cb_agenda",
+  "source_record_id": "cb-mn11-2024-04-15-item-3",
+  "action_type": "zoning_map_amendment",
+  "title": "ULURP C 240045 ZMM — Zoning Map Amendment, 2289 Second Avenue",
+  "summary": "Community Board 11 (Manhattan) Land Use Committee to hear a proposed zoning map amendment rezoning 2289 Second Avenue from R8 to R9A for a 25-story mixed-use residential building with 20% affordable units.",
+  "event_date": "2024-04-15",
+  "event_time": "18:30",
+  "deadline": "2024-04-29",
+  "address": "2289 Second Avenue, New York, NY 10035",
+  "bbl": null,
+  "ulurp_number": "C 240045 ZMM",
+  "ceqr_number": null,
+  "zoning_from": "R8",
+  "zoning_to": "R9A",
+  "confidence": 0.95,
+  "status": "accepted",
+  "extras": {},
+  "provenance": {
+    "title": {
+      "value": "ULURP C 240045 ZMM — Zoning Map Amendment, 2289 Second Avenue",
+      "source_quote": "Item 3. ULURP No. C 240045 ZMM — Zoning Map Amendment, 2289 Second Avenue",
+      "page": 1,
+      "char_span": null
+    },
+    "action_type": {
+      "value": "zoning_map_amendment",
+      "source_quote": "seeks approval of a zoning map amendment for the property at 2289 Second Avenue",
+      "page": 1,
+      "char_span": null
+    },
+    "ulurp_number": {
+      "value": "C 240045 ZMM",
+      "source_quote": "Item 3. ULURP No. C 240045 ZMM — Zoning Map Amendment, 2289 Second Avenue",
+      "page": 1,
+      "char_span": null
+    },
+    "zoning_from": {
+      "value": "R8",
+      "source_quote": "The application proposes to rezone the site from R8 to R9A",
+      "page": 1,
+      "char_span": null
+    },
+    "zoning_to": {
+      "value": "R9A",
+      "source_quote": "The application proposes to rezone the site from R8 to R9A",
+      "page": 1,
+      "char_span": null
+    },
+    "address": {
+      "value": "2289 Second Avenue, New York, NY 10035",
+      "source_quote": "seeks approval of a zoning map amendment for the property at 2289 Second Avenue, New York, NY 10035",
+      "page": 1,
+      "char_span": null
+    },
+    "event_date": {
+      "value": "2024-04-15",
+      "source_quote": "Monday, April 15, 2024, 6:30 PM",
+      "page": 1,
+      "char_span": null
+    },
+    "event_time": {
+      "value": "18:30",
+      "source_quote": "Monday, April 15, 2024, 6:30 PM",
+      "page": 1,
+      "char_span": null
+    },
+    "deadline": {
+      "value": "2024-04-29",
+      "source_quote": "Written comments may be submitted to the Board office by April 29, 2024.",
+      "page": 1,
+      "char_span": null
+    }
+  }
+}

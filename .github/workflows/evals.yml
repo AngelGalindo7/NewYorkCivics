@@ -11,6 +11,15 @@
 #   - geocoding median-error regression  > 20m    -> fail
 #   - factual-consistency drop           > 5pp    -> fail
 # The eval framework owns these gates; this workflow only runs them.
+#
+# FORK PR LIMITATION: The `pull_request` trigger uses GITHUB_TOKEN scoped to the HEAD repo.
+# For pull requests FROM forks, GitHub restricts write permissions — `pull-requests: write`
+# is downgraded to read-only, so the promptfoo-action comment step will silently no-op (403).
+# The eval JOB still runs and exits non-zero on assertion failure (the gate still enforces);
+# only the PR diff COMMENT is skipped on fork PRs. This is acceptable for Phase 0.
+# If outside contributors need comment feedback: switch to `pull_request_target` with
+# explicit `ref: refs/pull/${{ github.event.number }}/merge` checkout — but vet the security
+# implications (pull_request_target runs in the base repo context with write access).
 
 name: evals
 
@@ -21,6 +30,7 @@ on:
       - "ingest/eval/**"
       - "ingest/extract/prompts/**"
       - "package.json"
+      - "package-lock.json"
       - ".github/workflows/evals.yml"
 
 # Allow the job to post / update a single PR comment with the diff.
@@ -40,6 +50,10 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "20"
+          cache: "npm"
+
+      - name: Install Node deps (pinned via lockfile)
+        run: npm ci
 
       # Guard: only matters for manual/forked runs where the committed promptfoo.yaml might be
       # absent. On normal PRs the `paths` filter already guarantees it exists; skip cleanly if not.

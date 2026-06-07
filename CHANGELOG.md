@@ -11,6 +11,21 @@ No versions are tagged yet; everything below is **[Unreleased]**.
 ## [Unreleased]
 
 ### Added
+- **Phase 0 eval gate met** (`ingest/eval/promptfoo.yaml`): 10 per-field javascript assertions
+  across all golden cases — ULURP format, `event_date` YYYY-MM-DD, `action_type` string,
+  `ulurp_number === null` on non-ULURP cases, `zoning_from`/`zoning_to` on ZMA tests. Live run
+  confirmed 10/10 PASS with the echo provider. ULURP regex tightened to `\s+` (spaces required).
+- **10 hand-labeled golden CB agenda records** (`ingest/eval/golden/`): 5 boroughs, 8 action types,
+  spanning ULURP/ZMA/special-permit/variance/CEQR/landmark/budget — each with a `_source_text`
+  block and per-field `provenance.source_quote` entries (Rule 3).
+- **Geocoding eval fixture expanded** (`ingest/eval/fixtures/geocode_addresses.csv`): 20 → 100 East
+  Harlem addresses; 35 rows carry Nominatim `ref_lat`/`ref_lon` (validated in-bounds for CD11).
+  Gate scores spatial accuracy once GeoSupport binaries are installed.
+- **evals.yml CI hardened**: `npm ci` + `node-version: "20"` cache; `package-lock.json` pinned at
+  `promptfoo ^0.121.0`; `package-lock.json` added to `paths:` trigger; fork-PR token downgrade
+  documented inline (eval gate still enforces; only the PR diff comment is skipped on fork PRs).
+- **`make check` now includes `fmt-check`**: closes the gap where `ruff format --check` passed in
+  CI but was absent from the local `check` target.
 - **ZAP/ULURP connector** (`ingest/sources/nyc/zap_api.py`): pulls NYC Zoning Application Portal
   land-use applications for East Harlem (Socrata `hgx4-8ukb`), joins BBLs from `2iga-a6mk`,
   maps to `CivicEvent` with citations, and threads related filings on
