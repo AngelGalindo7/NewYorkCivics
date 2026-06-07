@@ -116,7 +116,8 @@ def _extract_solver():  # type: ignore[misc]
 
         input_text = _get_input_text(state)
         doc = ParsedDoc(text=input_text)
-        events = extract(doc, source_id="nyc_cb_agenda_eval")
+        source_id = (state.metadata or {}).get("source_id", "golden")  # type: ignore[union-attr]
+        events = extract(doc, source_id=source_id)
 
         output_content = json.dumps(
             [ev.model_dump(mode="json", exclude_none=False) for ev in events],
@@ -253,6 +254,7 @@ def extractor_field_f1() -> Task:  # type: ignore[misc]
                 default=str,
             ),
             id=record.get("source_record_id", f"golden-{i}"),
+            metadata={"source_id": record.get("source_id", "golden")},
         )
         for i, record in enumerate(golden)
     ]

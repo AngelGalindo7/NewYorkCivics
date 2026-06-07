@@ -60,7 +60,7 @@ defaultTest:
               - { type: "null" }
               # Phase 0 format bar: if present, must look like a ULURP number.
               # Full regex is in ingest/extract/ulurp_codes.py; this is the CI proxy.
-              - { type: string, pattern: "^[A-Z]{1,2}\\s*\\d{6}\\s*[A-Z]{2}[MXKQRY]$" }
+              - { type: string, pattern: "^[A-Z]{1,2}\\s+\\d{6}\\s+[A-Z]{2}[MXKQRY]$" }
           zoning_from:       { type: ["string", "null"] }
           zoning_to:         { type: ["string", "null"] }
           event_date:

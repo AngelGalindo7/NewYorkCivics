@@ -17,6 +17,9 @@ lint:       ## ruff lint
 fmt:        ## ruff format (write)
 	ruff format ingest
 
+fmt-check:  ## ruff format --check (CI mode, no writes)
+	ruff format --check ingest
+
 typecheck:  ## mypy
 	mypy ingest
 
@@ -29,4 +32,4 @@ eval:       ## promptfoo PR sample (node CLI, not pip)
 inspect-eval:  ## Inspect AI offline trajectory evals (needs GOOGLE_API_KEY)
 	PYTHONPATH=. inspect eval ingest/eval/tasks.py
 
-check: lint typecheck test  ## lint + types + tests
+check: lint fmt-check typecheck test  ## lint + format-check + types + tests
