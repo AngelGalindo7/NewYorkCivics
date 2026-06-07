@@ -1,0 +1,65 @@
+{
+  "_layout": "single_column",
+  "_source_text": "BROOKLYN COMMUNITY BOARD 1\nLand Use Committee\nTuesday, April 30, 2024, 6:00 PM\n435 Graham Avenue, Brooklyn, NY 11211\n\nAGENDA\n\nItem 3. CEQR No. 24DCP085K — Environmental Review, Williamsburg Waterfront Redevelopment\n\nCommunity Board 1 will review the Draft Environmental Impact Statement for CEQR No. 24DCP085K, the Williamsburg Waterfront Redevelopment project. The project involves the development of approximately 2.1 million square feet of mixed-use space at 50-70 Kent Avenue, Brooklyn, NY 11249. The CEQR lead agency is the Department of City Planning.\n\nWritten comments on the DEIS are due to the Department of City Planning by May 14, 2024. The Board will consider submitting formal comments by May 7, 2024.",
+  "source_id": "nyc_cb_agenda",
+  "source_record_id": "cb-bk01-2024-04-30-item-3",
+  "action_type": "ceqr_review",
+  "title": "CEQR 24DCP085K — Environmental Review, Williamsburg Waterfront Redevelopment",
+  "summary": "Community Board 1 (Brooklyn) to review the Draft Environmental Impact Statement for the Williamsburg Waterfront Redevelopment project at 50-70 Kent Avenue.",
+  "event_date": "2024-04-30",
+  "event_time": "18:00",
+  "deadline": "2024-05-14",
+  "address": "50-70 Kent Avenue, Brooklyn, NY 11249",
+  "bbl": null,
+  "ulurp_number": null,
+  "ceqr_number": "24DCP085K",
+  "zoning_from": null,
+  "zoning_to": null,
+  "confidence": 0.92,
+  "status": "accepted",
+  "extras": {},
+  "provenance": {
+    "title": {
+      "value": "CEQR 24DCP085K — Environmental Review, Williamsburg Waterfront Redevelopment",
+      "source_quote": "Item 3. CEQR No. 24DCP085K — Environmental Review, Williamsburg Waterfront Redevelopment",
+      "page": 1,
+      "char_span": null
+    },
+    "action_type": {
+      "value": "ceqr_review",
+      "source_quote": "Community Board 1 will review the Draft Environmental Impact Statement for CEQR No. 24DCP085K",
+      "page": 1,
+      "char_span": null
+    },
+    "ceqr_number": {
+      "value": "24DCP085K",
+      "source_quote": "CEQR No. 24DCP085K — Environmental Review, Williamsburg Waterfront Redevelopment",
+      "page": 1,
+      "char_span": null
+    },
+    "address": {
+      "value": "50-70 Kent Avenue, Brooklyn, NY 11249",
+      "source_quote": "development of approximately 2.1 million square feet of mixed-use space at 50-70 Kent Avenue, Brooklyn, NY 11249",
+      "page": 1,
+      "char_span": null
+    },
+    "event_date": {
+      "value": "2024-04-30",
+      "source_quote": "Tuesday, April 30, 2024, 6:00 PM",
+      "page": 1,
+      "char_span": null
+    },
+    "event_time": {
+      "value": "18:00",
+      "source_quote": "Tuesday, April 30, 2024, 6:00 PM",
+      "page": 1,
+      "char_span": null
+    },
+    "deadline": {
+      "value": "2024-05-14",
+      "source_quote": "Written comments on the DEIS are due to the Department of City Planning by May 14, 2024.",
+      "page": 1,
+      "char_span": null
+    }
+  }
+}

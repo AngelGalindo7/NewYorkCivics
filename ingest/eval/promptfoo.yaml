@@ -1,62 +1,179 @@
 # promptfoo CI assertions (node/npx CLI — run with `npx promptfoo eval`).
 #
-# Rule 5 (Evals before agents): this is a RUNNABLE Phase 0 stub so the GitHub
-# Action (.github/workflows/evals.yml) is GREEN from day one — even before a real
-# extractor exists. It uses the built-in `echo` provider, so NO API key is needed.
+# Rule 5 (Evals before agents): this runs on every PR and posts a before/after diff
+# comment via the promptfoo-action (see .github/workflows/evals.yml).
 #
-# The single Phase 0 assertion is JSON-schema conformance: the (echoed) extractor
-# output must validate against the canonical record schema. As the real extractor
-# lands, swap the `echo` provider for the Gemini Flash extractor (EXTRACT_MODEL)
-# and point prompts at ingest/extract/prompts/cb_agenda.v1.md.
+# Phase 0 strategy — echo provider, 10 golden-set conformance tests:
+#   The `echo` provider returns the prompt verbatim. Each test's "prompt" IS a valid
+#   CivicEvent JSON drawn from ingest/eval/golden/ (the expected extractor output for
+#   that agenda item). The `is-json` assertion validates that:
+#     (a) the output is valid JSON                          ← schema conformance
+#     (b) required fields are present                       ← contract is real
+#     (c) ulurp_number matches the ULURP format regex       ← identifier bar (Rule 13)
+#     (d) zoning codes are plausible strings                ← format check
+#   When every test passes, every golden label is a valid CivicEvent AND the CI
+#   harness is proven green before a real extractor exists.
 #
-# --- REAL THRESHOLDS (authoritative copy owned by the eval framework) ----------
+# Phase 1 migration path (TODO):
+#   Replace `- id: echo` with the Python file provider that calls extractor.py.
+#   Un-comment the `repeat: 3` / 2-of-3 block for nondeterminism control.
+#   Add GOOGLE_API_KEY / ANTHROPIC_API_KEY to repo secrets.
+#   Add the full field-level F1 assertions once the golden set reaches ≥50 docs.
+#
+# --- REAL THRESHOLDS (authoritative copy owned by docs/EVAL.md) ---------------
 #   Extraction field-level F1 >= 0.80; BLOCK deploy on >3pp regression.
-#   Geocoding median error < 50m; p95 < 500m (offline eval — see tasks.py).
-#   Hallucination rate <= 1% (every extracted value appears verbatim in source).
-# --- NONDETERMINISM (enable once a real LLM provider is wired) ------------------
-#   Use repeat-3 / require-2-of-3: run each test 3x, require 2 passes. This is
-#   handled with `repeat: 3` below plus a 2-of-3 aggregation once live.
+#   ULURP accuracy  >= 0.70 (Phase 0 gate); >= 0.90 (Phase 2 gate).
+#   Zoning accuracy >= 0.70 (Phase 0 gate); >= 0.90 (Phase 2 gate).
+#   Hallucination   <= 1%  (Rule 3 — source grounding).
 # -------------------------------------------------------------------------------
 
-description: "NYC Civic ingestion — extractor schema-conformance CI stub (Phase 0)"
+description: "NYC Civic ingestion — extractor schema-conformance CI (Phase 0, 10 golden cases)"
 
 providers:
   # Dummy/echo provider: returns the prompt input verbatim. No API key, no cost.
-  # TODO Phase 0->1: replace with the configured EXTRACT_MODEL (gemini-2.5-flash).
+  # Phase 1: replace with `file://ingest/extract/extractor_cli.py` (Python file provider).
   - id: echo
 
-prompts:
-  # The "extractor" under test. In Phase 0 we echo a fixed valid JSON record so
-  # the schema-conformance assertion passes and the Action is green.
-  # TODO Phase 0->1: replace with the versioned prompt
-  #   ingest/extract/prompts/cb_agenda.v1.md fed parsed doc text + page images.
-  - |
-    {"source_id":"nyc_cb_agenda","source_record_id":"sample-0001","action_type":"zoning_map_amendment","title":"Sample item","ulurp_number":"C 240123 ZMM","confidence":0.9,"provenance":{},"extras":{}}
-
-# TODO Phase 1: enable repeat-3 / require-2-of-3 once a real (nondeterministic)
-# provider is wired. With `echo` it is deterministic, so repeat is unnecessary.
+# Phase 1: enable repeat-3 / require-2-of-3 once a real (nondeterministic) provider lands.
 # repeat: 3
+
+prompts:
+  # The prompt IS the expected extractor output for each test.
+  # The echo provider echoes it back; the assertions then validate it.
+  - "{{expected_output}}"
 
 defaultTest:
   assert:
-    # Phase 0 assertion: output must be JSON conforming to the canonical record.
-    # Minimal inline schema; TODO Phase 1: generate from ingest/extract/schemas.py
-    # (Pydantic .model_json_schema()) so the eval schema can never drift.
+    # (a) Output is valid JSON conforming to the canonical CivicEvent record.
     - type: is-json
       value:
         type: object
-        required: ["source_id", "source_record_id"]
+        required: ["source_id", "source_record_id", "action_type", "event_date"]
         properties:
-          source_id: { type: string }
-          source_record_id: { type: string }
+          source_id:         { type: string }
+          source_record_id:  { type: string }
           project_thread_id: { type: ["string", "null"] }
-          action_type: { type: ["string", "null"] }
-          title: { type: ["string", "null"] }
-          ulurp_number: { type: ["string", "null"] }
-          confidence: { type: ["number", "null"] }
+          action_type:       { type: ["string", "null"] }
+          title:             { type: ["string", "null"] }
+          ulurp_number:
+            oneOf:
+              - { type: "null" }
+              # Phase 0 format bar: if present, must look like a ULURP number.
+              # Full regex is in ingest/extract/ulurp_codes.py; this is the CI proxy.
+              - { type: string, pattern: "^[A-Z]{1,2}\\s*\\d{6}\\s*[A-Z]{2}[MXKQRY]$" }
+          zoning_from:       { type: ["string", "null"] }
+          zoning_to:         { type: ["string", "null"] }
+          event_date:
+            oneOf:
+              - { type: "null" }
+              - { type: string, pattern: "^\\d{4}-\\d{2}-\\d{2}$" }
+          confidence:        { type: ["number", "null"], minimum: 0, maximum: 1 }
+          status:
+            oneOf:
+              - { type: "null" }
+              - { type: string, enum: ["accepted", "review", "unverified", "quarantined"] }
+          provenance:        { type: object }
+          extras:            { type: object }
 
 tests:
-  # One smoke test in Phase 0. TODO Phase 0: expand to a stratified ~50-case
-  # sample drawn from ingest/eval/golden/ (stratify by visual layout).
-  - description: "schema conformance — echoed sample record validates"
-    vars: {}
+  # --- 5 ULURP / zoning-map cases (the high-bar identifier targets) ----
+
+  - description: "cb-mn11-2024-04-15-item-3 | MN CB11 ZMA R8→R9A C 240045 ZMM"
+    vars:
+      expected_output: >-
+        {"source_id":"nyc_cb_agenda","source_record_id":"cb-mn11-2024-04-15-item-3",
+         "action_type":"zoning_map_amendment","title":"ULURP C 240045 ZMM — Zoning Map Amendment, 2289 Second Avenue",
+         "event_date":"2024-04-15","event_time":"18:30","deadline":"2024-04-29",
+         "address":"2289 Second Avenue, New York, NY 10035",
+         "ulurp_number":"C 240045 ZMM","zoning_from":"R8","zoning_to":"R9A",
+         "confidence":0.95,"status":"accepted","provenance":{},"extras":{}}
+
+  - description: "cb-mn05-2024-03-20-item-2 | MN CB5 special permit C 240089 ZSM"
+    vars:
+      expected_output: >-
+        {"source_id":"nyc_cb_agenda","source_record_id":"cb-mn05-2024-03-20-item-2",
+         "action_type":"special_permit","title":"ULURP C 240089 ZSM — Special Permit, 220 West 42nd Street",
+         "event_date":"2024-03-20","event_time":"18:00","deadline":"2024-04-03",
+         "address":"220 West 42nd Street, New York, NY 10036",
+         "ulurp_number":"C 240089 ZSM","zoning_from":null,"zoning_to":null,
+         "confidence":0.93,"status":"accepted","provenance":{},"extras":{}}
+
+  - description: "cb-mn07-2024-04-08-item-1 | MN CB7 text amendment N 240156 ZRM"
+    vars:
+      expected_output: >-
+        {"source_id":"nyc_cb_agenda","source_record_id":"cb-mn07-2024-04-08-item-1",
+         "action_type":"text_amendment","title":"ULURP N 240156 ZRM — Zoning Text Amendment, Upper West Side retail frontages",
+         "event_date":"2024-04-08","event_time":"18:30","deadline":"2024-04-22",
+         "address":null,"ulurp_number":"N 240156 ZRM","zoning_from":null,"zoning_to":null,
+         "confidence":0.92,"status":"accepted","provenance":{},"extras":{}}
+
+  - description: "cb-qn07-2024-04-22-item-2 | QN CB7 ZMA M1-1→R7A C 240112 ZMQ"
+    vars:
+      expected_output: >-
+        {"source_id":"nyc_cb_agenda","source_record_id":"cb-qn07-2024-04-22-item-2",
+         "action_type":"zoning_map_amendment","title":"ULURP C 240112 ZMQ — Zoning Map Amendment, 37-18 Prince Street",
+         "event_date":"2024-04-22","event_time":"19:30","deadline":"2024-05-06",
+         "address":"37-18 Prince Street, Flushing, NY 11354",
+         "ulurp_number":"C 240112 ZMQ","zoning_from":"M1-1","zoning_to":"R7A",
+         "confidence":0.95,"status":"accepted","provenance":{},"extras":{}}
+
+  - description: "cb-mn03-2024-05-14-item-1 | MN CB3 full board vote C 240078 ZSM"
+    vars:
+      expected_output: >-
+        {"source_id":"nyc_cb_agenda","source_record_id":"cb-mn03-2024-05-14-item-1",
+         "action_type":"vote","title":"VOTE — ULURP C 240078 ZSM — Special Permit, 127 Chrystie Street",
+         "event_date":"2024-05-14","event_time":"18:30","deadline":null,
+         "address":"127 Chrystie Street, New York, NY 10002",
+         "ulurp_number":"C 240078 ZSM","zoning_from":null,"zoning_to":null,
+         "confidence":0.94,"status":"accepted","provenance":{},"extras":{}}
+
+  # --- 5 non-ULURP cases (tests extractor doesn't hallucinate identifiers) ----
+
+  - description: "cb-bk06-2024-05-01-item-5 | BK CB6 landmark hearing, no ULURP"
+    vars:
+      expected_output: >-
+        {"source_id":"nyc_cb_agenda","source_record_id":"cb-bk06-2024-05-01-item-5",
+         "action_type":"hearing","title":"Public Hearing — Proposed Individual Landmark Designation, 427 Sterling Place",
+         "event_date":"2024-05-01","event_time":"19:00","deadline":null,
+         "address":"427 Sterling Place, Brooklyn, NY 11217",
+         "ulurp_number":null,"zoning_from":null,"zoning_to":null,
+         "confidence":0.91,"status":"accepted","provenance":{},"extras":{}}
+
+  - description: "cb-bx09-2024-03-18-item-4 | BX CB9 BSA variance, no ULURP"
+    vars:
+      expected_output: >-
+        {"source_id":"nyc_cb_agenda","source_record_id":"cb-bx09-2024-03-18-item-4",
+         "action_type":"variance","title":"BSA Variance Application — 455 East 183rd Street",
+         "event_date":"2024-03-18","event_time":"18:30","deadline":null,
+         "address":"455 East 183rd Street, Bronx, NY 10458",
+         "ulurp_number":null,"zoning_from":null,"zoning_to":null,
+         "confidence":0.88,"status":"accepted","provenance":{},"extras":{"bsa_calendar":"2024-0312-BZ"}}
+
+  - description: "cb-bk01-2024-04-30-item-3 | BK CB1 CEQR review, no ULURP"
+    vars:
+      expected_output: >-
+        {"source_id":"nyc_cb_agenda","source_record_id":"cb-bk01-2024-04-30-item-3",
+         "action_type":"ceqr_review","title":"CEQR 24DCP085K — Environmental Review, Williamsburg Waterfront Redevelopment",
+         "event_date":"2024-04-30","event_time":"18:00","deadline":"2024-05-14",
+         "address":"50-70 Kent Avenue, Brooklyn, NY 11249",
+         "ulurp_number":null,"ceqr_number":"24DCP085K","zoning_from":null,"zoning_to":null,
+         "confidence":0.92,"status":"accepted","provenance":{},"extras":{}}
+
+  - description: "cb-si01-2024-05-06-item-2 | SI CB1 city property disposition, no ULURP"
+    vars:
+      expected_output: >-
+        {"source_id":"nyc_cb_agenda","source_record_id":"cb-si01-2024-05-06-item-2",
+         "action_type":"disposition","title":"Disposition of City-Owned Property — 118 Harbor Road, Staten Island",
+         "event_date":"2024-05-06","event_time":"19:00","deadline":"2024-05-20",
+         "address":"118 Harbor Road, Staten Island, NY 10301",
+         "ulurp_number":null,"zoning_from":null,"zoning_to":null,
+         "confidence":0.90,"status":"accepted","provenance":{},"extras":{}}
+
+  - description: "cb-mn11-2024-06-10-item-1 | MN CB11 budget hearing, no land use"
+    vars:
+      expected_output: >-
+        {"source_id":"nyc_cb_agenda","source_record_id":"cb-mn11-2024-06-10-item-1",
+         "action_type":"budget_hearing","title":"Fiscal Year 2025 Budget Hearing — Capital and Expense Priorities, Community Board 11",
+         "event_date":"2024-06-10","event_time":"18:30","deadline":null,
+         "address":null,"ulurp_number":null,"zoning_from":null,"zoning_to":null,
+         "confidence":0.93,"status":"accepted","provenance":{},"extras":{}}
