@@ -19,7 +19,7 @@ CITY-AGNOSTIC: no NYC specifics. The golden labels happen to be NYC docs today,
 but this harness scores any extractor against any golden set.
 
 Thresholds are NOT defined here — they are owned by the eval framework (extractor
-field-level F1 >= 0.80; block on >3pp regression). See docs/EVAL.md.
+field-level F1 >= 0.80; block on >3pp regression).
 
 Run with: ``inspect eval ingest/eval/tasks.py``
 """

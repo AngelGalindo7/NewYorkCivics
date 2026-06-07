@@ -20,7 +20,7 @@
 #   Add GOOGLE_API_KEY / ANTHROPIC_API_KEY to repo secrets.
 #   Add the full field-level F1 assertions once the golden set reaches ≥50 docs.
 #
-# --- REAL THRESHOLDS (authoritative copy owned by docs/EVAL.md) ---------------
+# --- REAL THRESHOLDS -------------------------------------------------------
 #   Extraction field-level F1 >= 0.80; BLOCK deploy on >3pp regression.
 #   ULURP accuracy  >= 0.70 (Phase 0 gate); >= 0.90 (Phase 2 gate).
 #   Zoning accuracy >= 0.70 (Phase 0 gate); >= 0.90 (Phase 2 gate).
