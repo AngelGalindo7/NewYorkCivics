@@ -129,13 +129,10 @@ def upsert_event(
         insert_values.extend([longitude, latitude])
 
     # ON CONFLICT: update every non-key column plus updated_at.
-    update_cols = [
-        c
-        for c in insert_cols
-        if c not in ("source_id", "source_record_id")
-    ]
+    update_cols = [c for c in insert_cols if c not in ("source_id", "source_record_id")]
     update_clauses = ", ".join(
-        "provenance = events.provenance || EXCLUDED.provenance" if c == "provenance"
+        "provenance = events.provenance || EXCLUDED.provenance"
+        if c == "provenance"
         else f"{c} = EXCLUDED.{c}"
         for c in update_cols
     )
@@ -220,11 +217,7 @@ def get_or_create_thread(
             return str(row[0])
 
         # No existing thread — insert one.
-        insert_sql = (
-            "INSERT INTO project_threads (bbl, ulurp_number) "
-            "VALUES (%s, %s) "
-            "RETURNING id"
-        )
+        insert_sql = "INSERT INTO project_threads (bbl, ulurp_number) VALUES (%s, %s) RETURNING id"
         cur.execute(insert_sql, [bbl, ulurp_number])
         row = cur.fetchone()
 

@@ -87,6 +87,7 @@ def _call_llm(prompt: str) -> str:
 def _parse_response(raw: str, *, source_id: str) -> "list[CivicEvent]":
     """Validate and coerce the raw LLM JSON into CivicEvent objects (Rule 2)."""
     from ingest.extract.schemas import CivicEvent, RecordStatus
+
     try:
         data = json.loads(raw)
     except json.JSONDecodeError as exc:
