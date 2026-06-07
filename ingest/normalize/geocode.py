@@ -187,10 +187,12 @@ def _geosearch_fallback(address: str) -> GeoResult:
 
     geometry = features[0].get("geometry") or {}
     coords = geometry.get("coordinates") or []
+    lat: float | None = None
+    lon: float | None = None
     try:
         lon, lat = float(coords[0]), float(coords[1])
     except (IndexError, TypeError, ValueError):
-        lat = lon = None
+        pass
 
     log.debug(
         "geosearch_fallback(%r) -> BBL=%s CD=%s lat=%s lon=%s",

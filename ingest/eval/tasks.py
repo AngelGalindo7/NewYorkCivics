@@ -107,16 +107,16 @@ def _load_golden_set() -> list[dict[str, Any]]:
 
 
 @solver
-def _extract_solver():  # type: ignore[misc]
+def _extract_solver():
     """Inspect AI solver that delegates to the Python extractor (not a raw model call)."""
 
-    async def solve(state: TaskState, generate: Generate) -> TaskState:  # type: ignore[misc]
+    async def solve(state: TaskState, generate: Generate) -> TaskState:
         from ingest.extract.extractor import extract
         from ingest.parse import ParsedDoc
 
         input_text = _get_input_text(state)
         doc = ParsedDoc(text=input_text)
-        source_id = (state.metadata or {}).get("source_id", "golden")  # type: ignore[union-attr]
+        source_id = (state.metadata or {}).get("source_id", "golden")
         events = extract(doc, source_id=source_id)
 
         output_content = json.dumps(
@@ -127,7 +127,7 @@ def _extract_solver():  # type: ignore[misc]
 
         from ingest.config import get_settings
 
-        state.output = ModelOutput.from_content(  # type: ignore[attr-defined]
+        state.output = ModelOutput.from_content(
             model=get_settings().extract_model,
             content=output_content,
         )
@@ -141,11 +141,11 @@ def _extract_solver():  # type: ignore[misc]
 # ---------------------------------------------------------------------------
 
 
-@scorer(metrics=[mean()])  # type: ignore[call-arg]
-def _field_accuracy_scorer():  # type: ignore[misc]
+@scorer(metrics=[mean()])
+def _field_accuracy_scorer():
     """Score per identifier field; report overall mean and per-field breakdown."""
 
-    async def score(state: TaskState, target: Target) -> Score:  # type: ignore[misc]
+    async def score(state: TaskState, target: Target) -> Score:
         expected: dict[str, Any] = json.loads(target.text)
 
         completion = ""
@@ -174,7 +174,7 @@ def _field_accuracy_scorer():  # type: ignore[misc]
         # the source text. Count misses — 0 is ideal, any >0 flags the eval run.
         hallucinations = _count_hallucinations(actual, _get_input_text(state))
 
-        return Score(  # type: ignore[call-arg]
+        return Score(
             value=overall,
             explanation=json.dumps(
                 {"field_scores": field_scores, "hallucination_count": hallucinations}
@@ -184,9 +184,9 @@ def _field_accuracy_scorer():  # type: ignore[misc]
     return score
 
 
-def _get_input_text(state: TaskState) -> str:  # type: ignore[misc]
+def _get_input_text(state: TaskState) -> str:
     if hasattr(state, "input_text"):
-        return state.input_text  # type: ignore[attr-defined]
+        return state.input_text
     if hasattr(state, "input") and isinstance(state.input, str):
         return state.input
     if hasattr(state, "messages") and state.messages:
@@ -224,7 +224,7 @@ def _count_hallucinations(event: dict[str, Any], source_text: str) -> int:
 
 
 @task
-def extractor_field_f1() -> Task:  # type: ignore[misc]
+def extractor_field_f1() -> Task:
     """Extractor field-level accuracy vs the golden set (the first of the two evals).
 
     Contract:
@@ -246,7 +246,7 @@ def extractor_field_f1() -> Task:  # type: ignore[misc]
         )
 
     samples = [
-        Sample(  # type: ignore[call-arg]
+        Sample(
             input=record.get("_source_text", ""),
             target=json.dumps(
                 {k: v for k, v in record.items() if not k.startswith("_")},
@@ -259,7 +259,7 @@ def extractor_field_f1() -> Task:  # type: ignore[misc]
         for i, record in enumerate(golden)
     ]
 
-    return Task(  # type: ignore[call-arg]
+    return Task(
         dataset=MemoryDataset(samples),
         solver=[_extract_solver()],
         scorer=[_field_accuracy_scorer()],
