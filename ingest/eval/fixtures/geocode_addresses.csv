@@ -1,21 +1,101 @@
 address,borough,expected_bbl,expected_cd,ref_lat,ref_lon,notes
 "123 East 116th Street, Manhattan",MN,1016500030,111,40.7969,-73.9410,sample building from harlem_digest; BBL confirmed
-"175 East 116th Street, Manhattan",MN,TBD,111,,,East 116th St commercial corridor
-"215 East 116th Street, Manhattan",MN,TBD,111,,,East 116th St
-"320 East 117th Street, Manhattan",MN,TBD,111,,,residential block East Harlem
-"55 East 120th Street, Manhattan",MN,TBD,111,,,East Harlem mid-block
-"1 East 125th Street, Manhattan",MN,TBD,111,,,125th St / MLK Blvd anchor corner
-"163 East 110th Street, Manhattan",MN,TBD,111,,,south end of CD11
-"2321 Third Avenue, Manhattan",MN,TBD,111,,,Third Ave corridor East Harlem
-"1825 Lexington Avenue, Manhattan",MN,TBD,111,,,Lexington Ave East Harlem
-"401 East 118th Street, Manhattan",MN,TBD,111,,,residential East Harlem
-"107 East 115th Street, Manhattan",MN,TBD,111,,,CD11 south boundary area
-"1701 Madison Avenue, Manhattan",MN,TBD,111,,,Madison Ave East Harlem
-"234 East 104th Street, Manhattan",MN,TBD,111,,,south East Harlem
-"550 East 126th Street, Manhattan",MN,TBD,111,,,north East Harlem near Park Ave
+"175 East 116th Street, Manhattan",MN,TBD,111,40.7984420,-73.9404739,East 116th St commercial corridor
+"215 East 116th Street, Manhattan",MN,TBD,111,40.7977924,-73.9391459,East 116th St
+"320 East 117th Street, Manhattan",MN,TBD,111,40.7973676,-73.9367659,residential block East Harlem
+"55 East 120th Street, Manhattan",MN,TBD,111,40.8026878,-73.9422387,East Harlem mid-block
+"1 East 125th Street, Manhattan",MN,TBD,111,40.8064280,-73.9420670,125th St / MLK Blvd anchor corner
+"163 East 110th Street, Manhattan",MN,TBD,111,40.7946813,-73.9438818,south end of CD11
+"2321 Third Avenue, Manhattan",MN,TBD,111,40.8070669,-73.9336503,Third Ave corridor East Harlem
+"1825 Lexington Avenue, Manhattan",MN,TBD,111,40.7966820,-73.9429125,Lexington Ave East Harlem
+"401 East 118th Street, Manhattan",MN,TBD,111,40.7973220,-73.9342610,residential East Harlem
+"107 East 115th Street, Manhattan",MN,TBD,111,40.7985597,-73.9433800,CD11 south boundary area
+"1701 Madison Avenue, Manhattan",MN,TBD,111,40.7980342,-73.9463955,Madison Ave East Harlem
+"234 East 104th Street, Manhattan",MN,TBD,111,40.7898358,-73.9448684,south East Harlem
+"550 East 126th Street, Manhattan",MN,TBD,111,40.8041500,-73.9347665,north East Harlem near Park Ave
 "1979 Second Avenue, Manhattan",MN,TBD,111,,,Second Ave East Harlem
-"400 East 122nd Street, Manhattan",MN,TBD,111,,,East 122nd St residential
-"160 East 111th Street, Manhattan",MN,TBD,111,,,near south boundary CD11
+"400 East 122nd Street, Manhattan",MN,TBD,111,40.8022800,-73.9384339,East 122nd St residential
+"160 East 111th Street, Manhattan",MN,TBD,111,40.7951075,-73.9436356,near south boundary CD11
 "2283 Second Avenue, Manhattan",MN,TBD,111,,,Second Ave upper East Harlem
-"1845 Park Avenue, Manhattan",MN,TBD,111,,,Park Ave elevated corridor
-"65 East 129th Street, Manhattan",MN,TBD,111,,,north boundary East Harlem
+"1845 Park Avenue, Manhattan",MN,TBD,111,40.8058884,-73.9383040,Park Ave elevated corridor
+"65 East 129th Street, Manhattan",MN,TBD,111,40.8079747,-73.9376170,north boundary East Harlem
+"201 East 96th Street, Manhattan",MN,TBD,111,40.7850330,-73.9487300,E 96th St south gateway CD11
+"130 East 97th Street, Manhattan",MN,TBD,111,,,E 97th St residential
+"75 East 98th Street, Manhattan",MN,TBD,111,,,E 98th St near Lexington
+"310 East 99th Street, Manhattan",MN,TBD,111,,,E 99th St east side
+"102 East 100th Street, Manhattan",MN,TBD,111,40.7882924,-73.9489607,E 100th St west block
+"225 East 101st Street, Manhattan",MN,TBD,111,,,E 101st St mid-block
+"400 East 102nd Street, Manhattan",MN,TBD,111,,,E 102nd St east block
+"301 East 103rd Street, Manhattan",MN,TBD,111,40.7886285,-73.9433253,E 103rd St residential
+"200 East 106th Street, Manhattan",MN,TBD,111,40.7912998,-73.9444406,E 106th St west block
+"155 East 108th Street, Manhattan",MN,TBD,111,40.7935364,-73.9448101,E 108th St near Lexington
+"450 East 112th Street, Manhattan",MN,TBD,111,40.7939605,-73.9384491,E 112th St east block
+"340 East 119th Street, Manhattan",MN,TBD,111,40.7984426,-73.9354206,E 119th St east corridor
+"100 East 121st Street, Manhattan",MN,TBD,111,40.8021188,-73.9407111,E 121st St west block
+"350 East 124th Street, Manhattan",MN,TBD,111,40.8011546,-73.9330464,E 124th St east block
+"60 East 130th Street, Manhattan",MN,TBD,111,40.8083969,-73.9376418,E 130th St west block
+"500 East 132nd Street, Manhattan",MN,TBD,111,40.8094936,-73.9358039,E 132nd St near First Ave
+"420 East 133rd Street, Manhattan",MN,TBD,111,,,E 133rd St east side
+"300 East 134th Street, Manhattan",MN,TBD,111,,,E 134th St residential
+"150 East 135th Street, Manhattan",MN,TBD,111,,,E 135th St north boundary CD11
+"250 East 127th Street, Manhattan",MN,TBD,111,,,E 127th St mid-block
+"180 East 128th Street, Manhattan",MN,TBD,111,,,E 128th St residential
+"90 East 131st Street, Manhattan",MN,TBD,111,,,E 131st St near Madison
+"1690 Lexington Avenue, Manhattan",MN,TBD,111,40.7924364,-73.9463221,Lexington Ave south CD11
+"1770 Lexington Avenue, Manhattan",MN,TBD,111,40.7949560,-73.9444220,Lexington Ave mid CD11
+"1900 Lexington Avenue, Manhattan",MN,TBD,111,,,Lexington Ave E 116th area
+"1950 Lexington Avenue, Manhattan",MN,TBD,111,,,Lexington Ave E 120th area
+"2000 Lexington Avenue, Manhattan",MN,TBD,111,,,Lexington Ave E 124th area
+"2100 Lexington Avenue, Manhattan",MN,TBD,111,,,Lexington Ave upper CD11
+"1750 Madison Avenue, Manhattan",MN,TBD,111,40.7994350,-73.9453750,Madison Ave E 115th area
+"1800 Madison Avenue, Manhattan",MN,TBD,111,,,Madison Ave E 117th area
+"1850 Madison Avenue, Manhattan",MN,TBD,111,,,Madison Ave E 120th area
+"1930 Madison Avenue, Manhattan",MN,TBD,111,,,Madison Ave E 124th area
+"2000 Madison Avenue, Manhattan",MN,TBD,111,,,Madison Ave E 128th area
+"2050 Madison Avenue, Manhattan",MN,TBD,111,,,Madison Ave upper CD11
+"1600 Park Avenue, Manhattan",MN,TBD,111,40.7983960,-73.9440250,Park Ave E 115th area
+"1650 Park Avenue, Manhattan",MN,TBD,111,,,Park Ave E 117th area
+"1700 Park Avenue, Manhattan",MN,TBD,111,,,Park Ave E 120th area
+"1900 Park Avenue, Manhattan",MN,TBD,111,,,Park Ave E 128th area
+"1950 Park Avenue, Manhattan",MN,TBD,111,,,Park Ave E 131st area
+"2200 Fifth Avenue, Manhattan",MN,TBD,111,40.8021613,-73.9453686,Fifth Ave E 130th area
+"2100 Fifth Avenue, Manhattan",MN,TBD,111,,,Fifth Ave E 128th area
+"2050 Fifth Avenue, Manhattan",MN,TBD,111,,,Fifth Ave upper CD11
+"250 Pleasant Avenue, Manhattan",MN,TBD,111,40.7941635,-73.9339332,Pleasant Ave near E 116th
+"300 Pleasant Avenue, Manhattan",MN,TBD,111,,,Pleasant Ave near E 119th
+"350 Pleasant Avenue, Manhattan",MN,TBD,111,,,Pleasant Ave near E 122nd
+"410 Pleasant Avenue, Manhattan",MN,TBD,111,,,Pleasant Ave near E 125th
+"2150 First Avenue, Manhattan",MN,TBD,111,,,First Ave E 116th area
+"2200 First Avenue, Manhattan",MN,TBD,111,,,First Ave E 119th area
+"2300 First Avenue, Manhattan",MN,TBD,111,,,First Ave E 126th area
+"2400 First Avenue, Manhattan",MN,TBD,111,,,First Ave upper CD11
+"1950 Second Avenue, Manhattan",MN,TBD,111,,,Second Ave E 101st area
+"2000 Second Avenue, Manhattan",MN,TBD,111,,,Second Ave E 104th area
+"2100 Second Avenue, Manhattan",MN,TBD,111,,,Second Ave E 110th area
+"2150 Second Avenue, Manhattan",MN,TBD,111,,,Second Ave E 113th area
+"2050 Second Avenue, Manhattan",MN,TBD,111,,,Second Ave E 107th area
+"2000 Third Avenue, Manhattan",MN,TBD,111,,,Third Ave E 108th area
+"2100 Third Avenue, Manhattan",MN,TBD,111,,,Third Ave E 114th area
+"2200 Third Avenue, Manhattan",MN,TBD,111,,,Third Ave E 120th area
+"2400 Third Avenue, Manhattan",MN,TBD,111,,,Third Ave upper CD11
+"1600 Lexington Avenue, Manhattan",MN,TBD,111,,,Lexington Ave E 102nd area
+"50 East 113th Street, Manhattan",MN,TBD,111,,,E 113th St near Fifth Ave
+"225 East 114th Street, Manhattan",MN,TBD,111,,,E 114th St mid-block
+"475 East 123rd Street, Manhattan",MN,TBD,111,,,E 123rd St east block
+"125 East 109th Street, Manhattan",MN,TBD,111,,,E 109th St near Lex
+"500 East 105th Street, Manhattan",MN,TBD,111,,,E 105th St east block near First Ave
+"75 East 107th Street, Manhattan",MN,TBD,111,,,E 107th St west block
+"380 East 116th Street, Manhattan",MN,TBD,111,,,E 116th St east section
+"480 East 120th Street, Manhattan",MN,TBD,111,,,E 120th St east block
+"200 East 123rd Street, Manhattan",MN,TBD,111,,,E 123rd St west block
+"75 East 126th Street, Manhattan",MN,TBD,111,,,E 126th St west block
+"425 East 128th Street, Manhattan",MN,TBD,111,,,E 128th St east side
+"50 East 133rd Street, Manhattan",MN,TBD,111,,,E 133rd St west block
+"2250 First Avenue, Manhattan",MN,TBD,111,,,First Ave E 122nd area
+"2350 First Avenue, Manhattan",MN,TBD,111,,,First Ave E 129th area
+"2450 First Avenue, Manhattan",MN,TBD,111,,,First Ave E 135th area
+"1870 Madison Avenue, Manhattan",MN,TBD,111,,,Madison Ave E 122nd area
+"2020 Park Avenue, Manhattan",MN,TBD,111,,,Park Ave E 133rd area
+"1620 Lexington Avenue, Manhattan",MN,TBD,111,,,Lexington Ave E 103rd area
+"450 East 131st Street, Manhattan",MN,TBD,111,,,E 131st St east block
+"300 East 97th Street, Manhattan",MN,TBD,111,,,E 97th St east block

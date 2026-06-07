@@ -75,6 +75,12 @@ defaultTest:
           provenance:        { type: object }
           extras:            { type: object }
 
+# Per-field accuracy targets (Phase 0 gate): each test enforces field-level format via javascript assertions.
+# ULURP cases: ulurp_number non-null, event_date YYYY-MM-DD, action_type string.
+# Non-ULURP cases: ulurp_number null, event_date YYYY-MM-DD, action_type string.
+# ZMA subset: also zoning_from + zoning_to non-null strings.
+# Gate threshold: all 10 tests must pass (echo provider guarantees 100% in Phase 0).
+# Phase 1: replace echo with real extractor; expect >=70% on ULURP/zoning fields.
 tests:
   # --- 5 ULURP / zoning-map cases (the high-bar identifier targets) ----
 
@@ -87,6 +93,15 @@ tests:
          "address":"2289 Second Avenue, New York, NY 10035",
          "ulurp_number":"C 240045 ZMM","zoning_from":"R8","zoning_to":"R9A",
          "confidence":0.95,"status":"accepted","provenance":{},"extras":{}}
+    assert:
+      - type: javascript
+        value: "typeof JSON.parse(output).ulurp_number === 'string'"
+      - type: javascript
+        value: "/^\\d{4}-\\d{2}-\\d{2}$/.test(JSON.parse(output).event_date)"
+      - type: javascript
+        value: "typeof JSON.parse(output).action_type === 'string'"
+      - type: javascript
+        value: "typeof JSON.parse(output).zoning_from === 'string' && typeof JSON.parse(output).zoning_to === 'string'"
 
   - description: "cb-mn05-2024-03-20-item-2 | MN CB5 special permit C 240089 ZSM"
     vars:
@@ -97,6 +112,13 @@ tests:
          "address":"220 West 42nd Street, New York, NY 10036",
          "ulurp_number":"C 240089 ZSM","zoning_from":null,"zoning_to":null,
          "confidence":0.93,"status":"accepted","provenance":{},"extras":{}}
+    assert:
+      - type: javascript
+        value: "typeof JSON.parse(output).ulurp_number === 'string'"
+      - type: javascript
+        value: "/^\\d{4}-\\d{2}-\\d{2}$/.test(JSON.parse(output).event_date)"
+      - type: javascript
+        value: "typeof JSON.parse(output).action_type === 'string'"
 
   - description: "cb-mn07-2024-04-08-item-1 | MN CB7 text amendment N 240156 ZRM"
     vars:
@@ -106,6 +128,13 @@ tests:
          "event_date":"2024-04-08","event_time":"18:30","deadline":"2024-04-22",
          "address":null,"ulurp_number":"N 240156 ZRM","zoning_from":null,"zoning_to":null,
          "confidence":0.92,"status":"accepted","provenance":{},"extras":{}}
+    assert:
+      - type: javascript
+        value: "typeof JSON.parse(output).ulurp_number === 'string'"
+      - type: javascript
+        value: "/^\\d{4}-\\d{2}-\\d{2}$/.test(JSON.parse(output).event_date)"
+      - type: javascript
+        value: "typeof JSON.parse(output).action_type === 'string'"
 
   - description: "cb-qn07-2024-04-22-item-2 | QN CB7 ZMA M1-1→R7A C 240112 ZMQ"
     vars:
@@ -116,6 +145,15 @@ tests:
          "address":"37-18 Prince Street, Flushing, NY 11354",
          "ulurp_number":"C 240112 ZMQ","zoning_from":"M1-1","zoning_to":"R7A",
          "confidence":0.95,"status":"accepted","provenance":{},"extras":{}}
+    assert:
+      - type: javascript
+        value: "typeof JSON.parse(output).ulurp_number === 'string'"
+      - type: javascript
+        value: "/^\\d{4}-\\d{2}-\\d{2}$/.test(JSON.parse(output).event_date)"
+      - type: javascript
+        value: "typeof JSON.parse(output).action_type === 'string'"
+      - type: javascript
+        value: "typeof JSON.parse(output).zoning_from === 'string' && typeof JSON.parse(output).zoning_to === 'string'"
 
   - description: "cb-mn03-2024-05-14-item-1 | MN CB3 full board vote C 240078 ZSM"
     vars:
@@ -126,6 +164,13 @@ tests:
          "address":"127 Chrystie Street, New York, NY 10002",
          "ulurp_number":"C 240078 ZSM","zoning_from":null,"zoning_to":null,
          "confidence":0.94,"status":"accepted","provenance":{},"extras":{}}
+    assert:
+      - type: javascript
+        value: "typeof JSON.parse(output).ulurp_number === 'string'"
+      - type: javascript
+        value: "/^\\d{4}-\\d{2}-\\d{2}$/.test(JSON.parse(output).event_date)"
+      - type: javascript
+        value: "typeof JSON.parse(output).action_type === 'string'"
 
   # --- 5 non-ULURP cases (tests extractor doesn't hallucinate identifiers) ----
 
@@ -138,6 +183,13 @@ tests:
          "address":"427 Sterling Place, Brooklyn, NY 11217",
          "ulurp_number":null,"zoning_from":null,"zoning_to":null,
          "confidence":0.91,"status":"accepted","provenance":{},"extras":{}}
+    assert:
+      - type: javascript
+        value: "JSON.parse(output).ulurp_number === null"
+      - type: javascript
+        value: "/^\\d{4}-\\d{2}-\\d{2}$/.test(JSON.parse(output).event_date)"
+      - type: javascript
+        value: "typeof JSON.parse(output).action_type === 'string'"
 
   - description: "cb-bx09-2024-03-18-item-4 | BX CB9 BSA variance, no ULURP"
     vars:
@@ -148,6 +200,13 @@ tests:
          "address":"455 East 183rd Street, Bronx, NY 10458",
          "ulurp_number":null,"zoning_from":null,"zoning_to":null,
          "confidence":0.88,"status":"accepted","provenance":{},"extras":{"bsa_calendar":"2024-0312-BZ"}}
+    assert:
+      - type: javascript
+        value: "JSON.parse(output).ulurp_number === null"
+      - type: javascript
+        value: "/^\\d{4}-\\d{2}-\\d{2}$/.test(JSON.parse(output).event_date)"
+      - type: javascript
+        value: "typeof JSON.parse(output).action_type === 'string'"
 
   - description: "cb-bk01-2024-04-30-item-3 | BK CB1 CEQR review, no ULURP"
     vars:
@@ -158,6 +217,13 @@ tests:
          "address":"50-70 Kent Avenue, Brooklyn, NY 11249",
          "ulurp_number":null,"ceqr_number":"24DCP085K","zoning_from":null,"zoning_to":null,
          "confidence":0.92,"status":"accepted","provenance":{},"extras":{}}
+    assert:
+      - type: javascript
+        value: "JSON.parse(output).ulurp_number === null"
+      - type: javascript
+        value: "/^\\d{4}-\\d{2}-\\d{2}$/.test(JSON.parse(output).event_date)"
+      - type: javascript
+        value: "typeof JSON.parse(output).action_type === 'string'"
 
   - description: "cb-si01-2024-05-06-item-2 | SI CB1 city property disposition, no ULURP"
     vars:
@@ -168,6 +234,13 @@ tests:
          "address":"118 Harbor Road, Staten Island, NY 10301",
          "ulurp_number":null,"zoning_from":null,"zoning_to":null,
          "confidence":0.90,"status":"accepted","provenance":{},"extras":{}}
+    assert:
+      - type: javascript
+        value: "JSON.parse(output).ulurp_number === null"
+      - type: javascript
+        value: "/^\\d{4}-\\d{2}-\\d{2}$/.test(JSON.parse(output).event_date)"
+      - type: javascript
+        value: "typeof JSON.parse(output).action_type === 'string'"
 
   - description: "cb-mn11-2024-06-10-item-1 | MN CB11 budget hearing, no land use"
     vars:
@@ -177,3 +250,10 @@ tests:
          "event_date":"2024-06-10","event_time":"18:30","deadline":null,
          "address":null,"ulurp_number":null,"zoning_from":null,"zoning_to":null,
          "confidence":0.93,"status":"accepted","provenance":{},"extras":{}}
+    assert:
+      - type: javascript
+        value: "JSON.parse(output).ulurp_number === null"
+      - type: javascript
+        value: "/^\\d{4}-\\d{2}-\\d{2}$/.test(JSON.parse(output).event_date)"
+      - type: javascript
+        value: "typeof JSON.parse(output).action_type === 'string'"
