@@ -23,16 +23,23 @@ CITY-AGNOSTIC: signals are generic; no NYC specifics.
 
 from __future__ import annotations
 
-# Six named weights (Rule 8). Overridable per call. These are conservative
-# starting values — TODO Phase 2: tune against the ranking eval
-# (NDCG@10 >= 0.70, list diversity >= 0.40; per the eval framework).
+# Six named weights (Rule 8). Overridable per call. They sum to 1.0 so a score
+# reads as a fraction, but that is a convention, not a constraint — a caller may
+# override any single weight.
+#
+# Deadline urgency is the heaviest signal (0.35): the digest's job is to surface what
+# a reader can still act on, so a soon/still-open deadline should dominate the order.
+# Proximity (0.25) is a strong second — a hearing three blocks away you can speak at
+# beats a permit next door you can do nothing about. Recency (0.10) and novelty (0.08)
+# are trimmed; category is nudged to 0.12; magnitude unchanged (0.10).
+# TODO Phase 2: tune against the ranking eval (NDCG@10 >= 0.70, diversity >= 0.40).
 DEFAULT_WEIGHTS: dict[str, float] = {
-    "w_d": 0.30,  # proximity
-    "w_t": 0.15,  # recency
-    "w_dl": 0.25,  # deadline_urgency
+    "w_d": 0.25,  # proximity
+    "w_t": 0.10,  # recency
+    "w_dl": 0.35,  # deadline_urgency (heaviest — still-actionable items float up)
     "w_m": 0.10,  # magnitude
-    "w_n": 0.10,  # novelty
-    "w_cat": 0.10,  # category_weight
+    "w_n": 0.08,  # novelty
+    "w_cat": 0.12,  # category_weight
 }
 
 
