@@ -5,10 +5,9 @@ ranked events into a plain-English, forward-looking digest, gate it through huma
 review, and render the verifiable email body. Sending is send.py's job.
 
 The render is a short weekly briefing built for scannability and trust. Top to
-bottom it is: a personalization line scoped to the address the subscriber gave us;
-a one-line stats hook of small whole-number counts; an "Act on this" lead section
-holding only the items a reader can still act on (a future deadline or event);
-then the proximity-banded building feed grouped by building; then the honest
+bottom: a personalization line scoped to the subscriber's address; a one-line stats
+hook of whole-number counts; an "Act on this" lead of items a reader can still act
+on (a future deadline or event); the proximity-banded building feed; the honest
 verifiability footer. Forward-looking items lead because a deadline you can still
 meet is the most useful thing in the email.
 
@@ -94,11 +93,9 @@ def _is_speakable(action_type: str | None) -> bool:
 def _category_weight(action_type: str | None) -> float:
     """Per-action-type importance for the ranker, keyed off the canonical taxonomy.
 
-    Kept in step with the speakable vocabulary above so a public hearing is weighted as
-    a hearing wherever it appears — a land-use or council hearing must not silently fall
-    to the neutral default just because its taxonomy value is not the bare string
-    "hearing". A displacement correlation carries the most weight (highest-stakes
-    signal); a routine permit the least.
+    Matches the hearing family by name (like ``_is_speakable``) so a land-use or
+    council hearing is weighted as a hearing, not dropped to the neutral default. A
+    displacement correlation carries the most weight; a routine permit the least.
     """
     if action_type == "displacement_signal":
         return 1.0
@@ -116,16 +113,12 @@ def _category_weight(action_type: str | None) -> float:
 def _actionable_date(event_date: date | None, deadline: date | None, asof: date) -> date | None:
     """The date the reader can still act on, or None if nothing is open.
 
-    Drawn from the item's deadline or event_date under two honesty rules that keep the
-    lead forward-looking:
+      - A deadline governs when present: a future deadline IS the actionable date; a
+        lapsed one closes the window (return None — a recent observation date must not
+        reopen a missed deadline).
+      - With no deadline, fall back to a still-future event_date.
 
-      - A deadline is the act-by / speak-at moment, so when an item has a deadline the
-        deadline governs: a future deadline IS the actionable date (the hearing date,
-        the correction date), and an already-passed deadline closes the window — we
-        return None rather than reopen it on a coincidentally-recent observation date.
-      - Only when there is no deadline do we fall back to a still-future event_date.
-
-    We never tell a reader to act on something whose stated deadline already lapsed.
+    We never tell a reader to act on a deadline that already lapsed.
     """
     if deadline is not None:
         return deadline if deadline >= asof else None

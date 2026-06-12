@@ -27,13 +27,11 @@ from __future__ import annotations
 # reads as a fraction, but that is a convention, not a constraint — a caller may
 # override any single weight.
 #
-# Deadline urgency is now the heaviest signal (0.35): the digest's job is to put
-# what a reader can still act on this week at the top, so a soon/still-open deadline
-# should dominate the order. Proximity (0.25) stays a strong second — closer still
-# matters, but a hearing three blocks away you can still speak at beats a permit next
-# door you can do nothing about. Recency is trimmed to 0.10 (a recent record with no
-# action window is the least urgent), novelty to 0.08, and category nudged up to 0.12
-# so action-type importance keeps a little more say; magnitude is unchanged at 0.10.
+# Deadline urgency is the heaviest signal (0.35): the digest's job is to surface what
+# a reader can still act on, so a soon/still-open deadline should dominate the order.
+# Proximity (0.25) is a strong second — a hearing three blocks away you can speak at
+# beats a permit next door you can do nothing about. Recency (0.10) and novelty (0.08)
+# are trimmed; category is nudged to 0.12; magnitude unchanged (0.10).
 # TODO Phase 2: tune against the ranking eval (NDCG@10 >= 0.70, diversity >= 0.40).
 DEFAULT_WEIGHTS: dict[str, float] = {
     "w_d": 0.25,  # proximity
