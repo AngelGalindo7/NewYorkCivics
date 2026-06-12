@@ -7,7 +7,7 @@ trust-critical behavior: confidence routing (Rule 10), the human-review gate
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
@@ -107,8 +107,12 @@ def test_honest_footer_does_not_overclaim(digest):
 def test_review_gate_blocks_send_until_cleared(tmp_path: Path, digest, monkeypatch):
     from ingest.deliver.send import send_digest
 
-    # Ensure BYPASS_HUMAN_REVIEW is off regardless of the developer's local env.
-    monkeypatch.delenv("BYPASS_HUMAN_REVIEW", raising=False)
+    # Force the human-review gate ON regardless of the developer's local .env. Set the
+    # var to a false value rather than deleting it: get_settings() reloads .env via
+    # load_dotenv on every call, which would re-inject a *deleted* BYPASS_HUMAN_REVIEW
+    # from a developer's .env; an already-present env var wins over the file, so this
+    # keeps the gate test deterministic locally and in CI alike.
+    monkeypatch.setenv("BYPASS_HUMAN_REVIEW", "false")
 
     # Rule 9: a digest with unreviewed items must not send.
     assert digest["review_required"] is True
@@ -127,3 +131,227 @@ def test_render_is_nonempty_markdown(digest):
     body = render_markdown(digest)
     assert body.startswith("# ")
     assert "On your block" in body
+
+
+def test_act_on_this_leads_before_near_you(digest):
+    # The forward-looking lead must sit above the proximity feed so the most useful
+    # thing (what you can still act on) is the first thing a reader sees.
+    body = render_markdown(digest)
+    act_idx = body.index("## Act on this")
+    near_idx = body.index("## Near you")
+    assert act_idx < near_idx
+    # And both sit below the personalization line / stats hook at the very top.
+    assert body.index("For the address you gave us") < act_idx
+
+
+def test_act_on_this_holds_future_hearing_not_overdue(digest):
+    # The future rezoning hearing (deadline 2026-06-30) is the still-actionable item;
+    # the overdue-only HPD violation (deadline 2026-05-10) must not lead.
+    lead_titles = [it["title"] for it in digest["lead_items"]]
+    assert any("Zoning Map Amendment" in t for t in lead_titles)
+    assert not any(t == "HPD Class C violation" for t in lead_titles)
+    # Sorted soonest-first by the still-open action date.
+    dates = [it["actionable_date"] for it in digest["lead_items"]]
+    assert dates == sorted(dates)
+
+
+def test_displacement_never_leads_and_is_flagged(digest):
+    # The displacement signal must never read as a forward-looking headline: it stays
+    # in its building thread, flagged needs-verification, never in "Act on this".
+    lead_titles = [it["title"].lower() for it in digest["lead_items"]]
+    assert not any("displacement" in t for t in lead_titles)
+
+    displacement = [it for it in _all_items(digest) if "displacement" in it["title"].lower()]
+    assert len(displacement) == 1
+    assert displacement[0]["needs_verification"] is True
+
+
+def _review_event_with_future_deadline(asof=ASOF):
+    # A needs-verification record (REVIEW status) that DOES carry a future, still-open
+    # deadline — so its actionable_date is non-None and only the verification guard
+    # keeps it out of the lead. This is the case the displacement fixture cannot
+    # exercise (that signal has no date), so it isolates the verification guard.
+    from ingest.extract.schemas import Citation, CivicEvent, RecordStatus
+
+    return CivicEvent(
+        source_id="test_src",
+        source_record_id="REVIEW-FUTURE-1",
+        bbl=SAMPLE_SUBSCRIBER["bbl"],
+        action_type="hearing",
+        title="Tentative rezoning hearing (unconfirmed)",
+        summary="Low-confidence record awaiting human review.",
+        address=SAMPLE_SUBSCRIBER["address"],
+        deadline=asof + timedelta(days=10),
+        confidence=0.5,
+        status=RecordStatus.REVIEW,
+        citations=[
+            Citation(
+                kind="data_source",
+                verifies="exact_record",
+                label="source row",
+                url="https://example.com/row/REVIEW-FUTURE-1",
+            )
+        ],
+    )
+
+
+def test_needs_verification_item_with_future_date_is_kept_out_of_lead():
+    # Guards the confidence-routing lever independently of the no-date path: an item
+    # that is needs-verification AND has a future actionable date must NOT lead, even
+    # though its date alone would qualify it. Deleting the verification clause from
+    # _is_actionable must fail here.
+    from ingest.deliver.digest import _is_actionable, _to_item
+
+    item = _to_item(_review_event_with_future_deadline(), BAND_ON_YOUR_BLOCK, ASOF)
+    # Date guard alone is satisfied — so this isolates the verification guard.
+    assert item["actionable_date"] is not None
+    assert item["needs_verification"] is True
+    assert _is_actionable(item) is False
+
+    # End-to-end: it is excluded from the lead but still threaded into its building.
+    matched = match_subscriber(SAMPLE_SUBSCRIBER, [_review_event_with_future_deadline()])
+    digest = build_digest(SAMPLE_SUBSCRIBER, matched, asof=ASOF)
+    lead_titles = [it["title"] for it in digest["lead_items"]]
+    assert not any("unconfirmed" in t.lower() for t in lead_titles)
+    threaded = [
+        it["title"]
+        for section in digest["sections"]
+        for building in section["buildings"]
+        for it in building["items"]
+    ]
+    assert any("unconfirmed" in t.lower() for t in threaded)
+
+
+def test_speakable_stat_counts_a_hearing_in_the_lead():
+    # The "hearing you can still speak at" stat must reflect a real, verified hearing
+    # that lands in the lead — not silently miss it. A future, ACCEPTED hearing on the
+    # subscriber's building is speakable and actionable, so the stat clause must count it.
+    from ingest.extract.schemas import Citation, CivicEvent, RecordStatus
+
+    hearing = CivicEvent(
+        source_id="test_src",
+        source_record_id="HEARING-1",
+        bbl=SAMPLE_SUBSCRIBER["bbl"],
+        action_type="land_use_hearing",
+        title="Land Use Committee hearing",
+        summary="Upcoming hearing a resident can testify at.",
+        address=SAMPLE_SUBSCRIBER["address"],
+        event_date=ASOF + timedelta(days=7),
+        confidence=1.0,
+        status=RecordStatus.ACCEPTED,
+        citations=[
+            Citation(
+                kind="data_source",
+                verifies="exact_record",
+                label="hearing record",
+                url="https://example.com/hearing/HEARING-1",
+            )
+        ],
+    )
+    matched = match_subscriber(SAMPLE_SUBSCRIBER, [hearing])
+    digest = build_digest(SAMPLE_SUBSCRIBER, matched, asof=ASOF)
+    lead_types = [it["action_type"] for it in digest["lead_items"]]
+    assert "land_use_hearing" in lead_types  # it reached the lead
+    line = digest["stats_line"]
+    assert line is not None
+    assert "1 upcoming hearing you can still speak at" in line
+
+
+def test_stats_top_line_is_whole_numbers_no_percent(digest):
+    # Numeracy guardrail: the scannable hook uses natural frequencies (whole counts),
+    # never a percentage or rate.
+    line = digest["stats_line"]
+    assert line is not None
+    assert "%" not in line
+    body = render_markdown(digest)
+    assert line in body
+    # Every count in the line is a bare integer (no decimals, no "%").
+    import re
+
+    for token in re.findall(r"\d+(?:\.\d+)?", line):
+        assert "." not in token
+
+
+def test_actionable_date_rules():
+    # Direct coverage of the load-bearing forward-looking predicate, including the
+    # "a lapsed deadline closes the window even if something happened recently" branch
+    # that the end-to-end fixture only exercises indirectly.
+    from ingest.deliver.digest import _actionable_date
+
+    future = ASOF + timedelta(days=5)
+    sooner = ASOF + timedelta(days=2)
+    past = ASOF - timedelta(days=5)
+
+    assert _actionable_date(None, future, ASOF) == future  # future deadline is the date
+    assert _actionable_date(future, past, ASOF) is None  # lapsed deadline closes the window
+    assert _actionable_date(future, None, ASOF) == future  # no deadline -> future event_date
+    assert _actionable_date(past, None, ASOF) is None  # no deadline, past event -> nothing open
+    assert _actionable_date(sooner, future, ASOF) == future  # a present deadline governs
+    assert _actionable_date(None, ASOF, ASOF) == ASOF  # today still counts as open
+
+
+def test_when_phrase_plain_words():
+    from ingest.deliver.digest import _when_phrase
+
+    assert _when_phrase(ASOF, ASOF) == "today"
+    assert _when_phrase(ASOF + timedelta(days=1), ASOF) == "tomorrow"
+    assert _when_phrase(ASOF + timedelta(days=5), ASOF) == "in 5 days"
+    # The lead only feeds futures, but a non-future date must degrade gracefully.
+    assert _when_phrase(ASOF - timedelta(days=3), ASOF) == "today"
+
+
+def test_category_weight_covers_the_hearing_family():
+    # A real Land-Use / Council hearing must be weighted as a hearing, not silently
+    # dropped to the neutral default just because its taxonomy value is not "hearing".
+    from ingest.deliver.digest import _category_weight
+
+    assert _category_weight("hearing") == 0.7
+    assert _category_weight("land_use_hearing") == 0.7
+    assert _category_weight("council_hearing") == 0.7
+    assert _category_weight("rezoning") == 0.9
+    assert _category_weight("special_permit") == 0.9
+    assert _category_weight("violation") == 0.6
+    assert _category_weight("permit") == 0.5
+    assert _category_weight("displacement_signal") == 1.0
+    assert _category_weight(None) == 0.4
+    assert _category_weight("brand_new_action_type") == 0.4
+
+
+def _accepted_hearing(record_id: str, title: str, deadline: date):
+    from ingest.extract.schemas import Citation, CivicEvent, RecordStatus
+
+    return CivicEvent(
+        source_id="test_src",
+        source_record_id=record_id,
+        bbl=str(SAMPLE_SUBSCRIBER["bbl"]),
+        action_type="land_use_hearing",
+        title=title,
+        summary="Upcoming hearing a resident can testify at.",
+        address=str(SAMPLE_SUBSCRIBER["address"]),
+        deadline=deadline,
+        confidence=1.0,
+        status=RecordStatus.ACCEPTED,
+        citations=[
+            Citation(
+                kind="data_source",
+                verifies="exact_record",
+                label="hearing record",
+                url=f"https://example.com/hearing/{record_id}",
+            )
+        ],
+    )
+
+
+def test_lead_is_sorted_soonest_first():
+    # Two still-open items with different future dates exercise real ordering (the
+    # single-item sample makes `sorted(dates) == dates` vacuously true).
+    soon = _accepted_hearing("SOON", "Sooner hearing", ASOF + timedelta(days=3))
+    later = _accepted_hearing("LATER", "Later hearing", ASOF + timedelta(days=20))
+
+    matched = match_subscriber(SAMPLE_SUBSCRIBER, [later, soon])  # deliberately out of order
+    digest = build_digest(SAMPLE_SUBSCRIBER, matched, asof=ASOF)
+
+    lead_titles = [it["title"] for it in digest["lead_items"]]
+    assert lead_titles == ["Sooner hearing", "Later hearing"]
+    dates = [it["actionable_date"] for it in digest["lead_items"]]
+    assert dates == sorted(dates) and dates[0] != dates[-1]  # genuinely ascending, not equal

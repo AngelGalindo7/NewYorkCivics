@@ -1,8 +1,16 @@
 """Digest assembly — group, order, human-review, then render (CITY-AGNOSTIC).
 
 Stage: Deliver (Stage 6). Single responsibility: turn one subscriber's matched,
-ranked events into a plain-English digest, gate it through human review, and
-render the verifiable email body. Sending is send.py's job.
+ranked events into a plain-English, forward-looking digest, gate it through human
+review, and render the verifiable email body. Sending is send.py's job.
+
+The render is a short weekly briefing built for scannability and trust. Top to
+bottom it is: a personalization line scoped to the address the subscriber gave us;
+a one-line stats hook of small whole-number counts; an "Act on this" lead section
+holding only the items a reader can still act on (a future deadline or event);
+then the proximity-banded building feed grouped by building; then the honest
+verifiability footer. Forward-looking items lead because a deadline you can still
+meet is the most useful thing in the email.
 
 Rules honored here:
   - Rule 9  (Human-review-then-send): :func:`build_digest` returns a review-ready
@@ -10,9 +18,9 @@ Rules honored here:
             is in the top-N. A wrong extraction never auto-publishes as fact.
   - Rule 10 (Confidence routing): every item is tagged verified vs needs-verification
             and the render visibly separates them with a footnote — the biggest
-            trust lever.
+            trust lever. A needs-verification item never leads the email.
   - Rule 8  (linear ranker): rank.score() breaks ties, but the digest orders for
-            ACTIONABILITY first (soonest/overdue deadlines lead).
+            ACTIONABILITY first (soonest still-open deadlines lead).
   - Rule 3  (quote the source) + citations: each item renders its source links so a
             reader can verify the claim against the authoritative record.
 
@@ -51,14 +59,89 @@ _BAND_LABELS = (
     (BAND_IN_YOUR_AREA, "In your area"),
 )
 
-# Per-action-type category weight (Rule 8 w_cat) and a coarse magnitude prior.
-_CATEGORY_WEIGHT = {
-    "displacement_signal": 1.0,
-    "rezoning": 0.9,
-    "violation": 0.6,
-    "permit": 0.5,
-    "hearing": 0.7,
-}
+# Public-review action types — formal land-use proposals that open a public-comment
+# window a resident can weigh in on (alongside the hearing family matched below).
+# These are canonical taxonomy values, not source- or city-specific strings.
+_PUBLIC_REVIEW_ACTIONS = frozenset(
+    {
+        "rezoning",
+        "special_permit",
+        "variance",
+        "authorization",
+        "certification",
+        "urban_renewal",
+        "environmental_review",
+        "site_selection",
+        "land_use_application",
+    }
+)
+
+
+def _is_speakable(action_type: str | None) -> bool:
+    """True when the action type is one a reader can testify at / comment on.
+
+    Drives the "hearing you can still speak at" count in the stats line. We match the
+    whole hearing family by name (so any ``*hearing`` taxonomy value — a plain hearing,
+    a land-use hearing, a council hearing — counts, and a new hearing source can't
+    silently drop out) plus the formal public-review proposals that open a comment
+    window. A permit or a violation is never speakable: there is nothing to testify at.
+    """
+    if not action_type:
+        return False
+    return "hearing" in action_type or action_type in _PUBLIC_REVIEW_ACTIONS
+
+
+def _category_weight(action_type: str | None) -> float:
+    """Per-action-type importance for the ranker, keyed off the canonical taxonomy.
+
+    Kept in step with the speakable vocabulary above so a public hearing is weighted as
+    a hearing wherever it appears — a land-use or council hearing must not silently fall
+    to the neutral default just because its taxonomy value is not the bare string
+    "hearing". A displacement correlation carries the most weight (highest-stakes
+    signal); a routine permit the least.
+    """
+    if action_type == "displacement_signal":
+        return 1.0
+    if action_type == "violation":
+        return 0.6
+    if action_type == "permit":
+        return 0.5
+    if action_type and "hearing" in action_type:
+        return 0.7
+    if action_type in _PUBLIC_REVIEW_ACTIONS:  # rezoning, special permit, variance, ...
+        return 0.9
+    return 0.4  # unknown / other action type: neutral-low prior
+
+
+def _actionable_date(event_date: date | None, deadline: date | None, asof: date) -> date | None:
+    """The date the reader can still act on, or None if nothing is open.
+
+    Drawn from the item's deadline or event_date under two honesty rules that keep the
+    lead forward-looking:
+
+      - A deadline is the act-by / speak-at moment, so when an item has a deadline the
+        deadline governs: a future deadline IS the actionable date (the hearing date,
+        the correction date), and an already-passed deadline closes the window — we
+        return None rather than reopen it on a coincidentally-recent observation date.
+      - Only when there is no deadline do we fall back to a still-future event_date.
+
+    We never tell a reader to act on something whose stated deadline already lapsed.
+    """
+    if deadline is not None:
+        return deadline if deadline >= asof else None
+    if event_date is not None and event_date >= asof:
+        return event_date
+    return None
+
+
+def _when_phrase(when: date, asof: date) -> str:
+    """Plain-words phrasing for a future actionable date ('today' / 'in 5 days')."""
+    days = (when - asof).days
+    if days <= 0:
+        return "today"
+    if days == 1:
+        return "tomorrow"
+    return f"in {days} days"
 
 
 def _deadline_note(deadline: date | None, asof: date) -> str | None:
@@ -104,7 +187,7 @@ def _signals(event: CivicEvent, band: str, asof: date) -> dict[str, float]:
         "deadline_urgency": deadline_urgency,
         "magnitude": magnitude,
         "novelty": 0.5,  # no thread history in the prototype; neutral prior
-        "category_weight": _CATEGORY_WEIGHT.get(event.action_type or "", 0.4),
+        "category_weight": _category_weight(event.action_type),
     }
 
 
@@ -116,6 +199,7 @@ def _to_item(event: CivicEvent, band: str, asof: date) -> dict[str, Any]:
     """Project one CivicEvent into a render-ready digest item (with verify links)."""
     verified = event.status == RecordStatus.ACCEPTED
     cites = sorted(event.citations, key=lambda c: _VERIFY_RANK.get(c.verifies, 9))
+    action_on = _actionable_date(event.event_date, event.deadline, asof)
     return {
         "title": event.title or "(untitled event)",
         "summary": event.summary or "",
@@ -131,6 +215,8 @@ def _to_item(event: CivicEvent, band: str, asof: date) -> dict[str, Any]:
         "deadline": event.deadline,
         "deadline_note": _deadline_note(event.deadline, asof),
         "event_date": event.event_date,
+        # Soonest still-open date the reader can act on (None = nothing open).
+        "actionable_date": action_on,
         "score": rank.score(_signals(event, band, asof)),
         "citations": [
             {"kind": c.kind, "verifies": c.verifies, "label": c.label, "url": c.url} for c in cites
@@ -138,10 +224,25 @@ def _to_item(event: CivicEvent, band: str, asof: date) -> dict[str, Any]:
     }
 
 
+def _is_actionable(item: dict[str, Any]) -> bool:
+    """Lead-section gate: a still-open date AND a confirmed (verified) item.
+
+    A needs-verification item is never promoted to the lead — an unconfirmed
+    correlation must not read as a headline fact. It still appears in its building
+    thread below, flagged.
+    """
+    return item["actionable_date"] is not None and not item["needs_verification"]
+
+
 def _actionability_key(item: dict[str, Any]) -> tuple:
     """Sort key: soonest/overdue deadlines first, then highest rank score."""
     has_deadline = item["deadline"] is not None
     return (not has_deadline, item["deadline"] or date.max, -item["score"])
+
+
+def _lead_key(item: dict[str, Any]) -> tuple:
+    """Sort key for the lead section: soonest still-open date first, then rank."""
+    return (item["actionable_date"] or date.max, -item["score"])
 
 
 def _building_key(item: dict[str, Any]) -> str:
@@ -169,6 +270,39 @@ def _group_buildings(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return out
 
 
+def _stats_line(all_items: list[dict[str, Any]], lead: list[dict[str, Any]]) -> str | None:
+    """One scannable line of small whole-number counts scoped near the subscriber.
+
+    Numeracy guardrail: only natural frequencies (whole counts) over the items near
+    the subscriber — never a percentage, rate, or relative-risk figure. A zero count
+    is omitted (we don't print "0 hearings"). The "hearing you can still speak at"
+    clause counts only the still-open windows in the lead section, so the number
+    matches what a reader can actually act on. A needs-verification signal is never
+    counted here — it is not a headline fact.
+    """
+    permits = sum(1 for it in all_items if it["action_type"] == "permit")
+    violations = sum(1 for it in all_items if it["action_type"] == "violation")
+    speakable = sum(1 for it in lead if _is_speakable(it["action_type"]))
+
+    clauses: list[str] = []
+    if permits:
+        clauses.append(f"{permits} new permit{'s' if permits != 1 else ''}")
+    if violations:
+        clauses.append(f"{violations} hazardous violation{'s' if violations != 1 else ''}")
+    if speakable:
+        # "upcoming" keeps the count honest: the window is still open, but the hearing
+        # itself may be weeks out — it is not necessarily happening "this week".
+        noun = (
+            "upcoming hearing you can still speak at"
+            if speakable == 1
+            else "upcoming hearings you can still speak at"
+        )
+        clauses.append(f"{speakable} {noun}")
+    if not clauses:
+        return None
+    return "This week near your address: " + " · ".join(clauses) + "."
+
+
 def build_digest(
     subscriber: dict[str, Any],
     matched: dict[str, list[CivicEvent]],
@@ -184,7 +318,8 @@ def build_digest(
         asof: reference date for deadline/recency phrasing (default today).
         review_top_n: cap on items a human reviews before send (Rule 9).
 
-    Returns a structured digest: ordered, non-empty sections (block ->
+    Returns a structured digest: the forward-looking "Act on this" lead (still-open
+    items only, soonest first), the proximity-banded building feed (block ->
     neighborhood -> area), each item carrying its source citations and a
     verified/needs-verification tag (Rule 10), plus ``review_required`` and the
     list of items a human must clear before send (Rule 9). Does NOT send.
@@ -199,6 +334,12 @@ def build_digest(
             buildings = _group_buildings(items)
             sections.append({"band": band, "label": label, "buildings": buildings})
             all_items.extend(items)
+
+    # "Act on this": only items with a still-open action window, soonest first. The
+    # same item may also appear in its building thread below for context — the digest
+    # orders for actionability first. Needs-verification items are excluded from the lead.
+    lead_items = sorted((it for it in all_items if _is_actionable(it)), key=_lead_key)
+    stats_line = _stats_line(all_items, lead_items)
 
     def _needs_attention(item: dict[str, Any]) -> bool:
         if item["needs_verification"]:
@@ -235,6 +376,8 @@ def build_digest(
         "subscriber_email": subscriber.get("email"),
         "area": subscriber.get("address"),
         "asof": asof.isoformat(),
+        "stats_line": stats_line,
+        "lead_items": lead_items,
         "sections": sections,
         "item_count": n,
         "building_count": building_count,
@@ -261,24 +404,54 @@ def _render_item(item: dict[str, Any], out: list[str]) -> None:
     out.append("")
 
 
+def _render_lead_item(item: dict[str, Any], asof: date, out: list[str]) -> None:
+    """One compact entry in the 'Act on this' lead: title, when, and the verify line."""
+    out.append(f"**{item['title']}**")
+    when = item["actionable_date"]
+    if when is not None:
+        out.append(f"- **When:** {_when_phrase(when, asof)} ({when.isoformat()})")
+    if item["citations"]:
+        links = " · ".join(f"[{c['label']}]({c['url']})" for c in item["citations"])
+        out.append(f"- Verify: {links}")
+    out.append("")
+
+
 def render_markdown(digest: dict[str, Any]) -> str:
     """Render the digest into the plain-English, verifiable email body (Markdown)."""
     out: list[str] = []
     out.append(f"# {digest['subject']}")
+    # Personalization framing: scoped to the address the subscriber gave us.
     if digest.get("area"):
-        out.append(f"_For {digest['area']} — as of {digest['asof']}_")
+        out.append(f"_For the address you gave us — {digest['area']} — as of {digest['asof']}._")
     out.append("")
 
     if digest["item_count"] == 0:
-        out.append("No new civic activity near you this week.")
+        out.append("No new civic activity near your address this week.")
         return "\n".join(out)
 
+    # Stats top-line: the scannable hook (whole-number counts, no percentages).
+    if digest.get("stats_line"):
+        out.append(digest["stats_line"])
+        out.append("")
+
+    # "Act on this": the forward-looking lead — still-open items only, soonest first.
+    asof = date.fromisoformat(digest["asof"])
+    lead = digest.get("lead_items") or []
+    if lead:
+        out.append("## Act on this")
+        out.append("")
+        for item in lead:
+            _render_lead_item(item, asof, out)
+
+    # "Near you": the proximity-banded, building-threaded feed.
+    out.append("## Near you")
+    out.append("")
     for section in digest["sections"]:
-        out.append(f"## {section['label']}")
+        out.append(f"### {section['label']}")
         out.append("")
         for building in section["buildings"]:
             items = building["items"]
-            out.append(f"### {building['label']}")
+            out.append(f"#### {building['label']}")
             if len(items) > 1:
                 out.append(f"_{len(items)} updates on this building_")
             out.append("")
