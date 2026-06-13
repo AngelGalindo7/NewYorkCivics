@@ -14,10 +14,12 @@ import pytest
 
 from ingest.extract.schemas import RecordStatus
 from ingest.sources.nyc.legistar import (
+    _HEADERS,
     SOURCE_ID,
     _event_to_civic,
     _parse_event_date,
     _parse_event_time,
+    _request_params,
 )
 
 # Representative Legistar Event rows (field names mirror the REST API shape).
@@ -222,3 +224,32 @@ def test_minimal_event():
     assert ev.source_record_id == "event:1"
     assert ev.event_time is None
     assert ev.status == RecordStatus.ACCEPTED
+
+
+# ── keyless requests: the public read API needs no token ──────────────────────
+
+
+def test_request_params_omits_token_when_absent():
+    # The public API is keyless, so a missing token must NOT block the request — the
+    # connector simply sends the query without a token param.
+    params = _request_params(None, **{"$filter": "EventDate ge x", "$orderby": "EventDate"})
+    assert "token" not in params
+    assert params["$filter"] == "EventDate ge x"
+    assert params["$orderby"] == "EventDate"
+
+
+def test_request_params_includes_token_when_present():
+    # A token, when set, is passed through (it only lifts rate limits).
+    params = _request_params("tok-123", **{"$top": 50})
+    assert params["token"] == "tok-123"
+    assert params["$top"] == 50
+
+
+def test_request_params_empty_when_no_token_no_extra():
+    assert _request_params(None) == {}
+
+
+def test_headers_carry_a_user_agent():
+    # A descriptive User-Agent avoids naive bot-blocking 403s on the public API.
+    assert _HEADERS.get("User-Agent")
+    assert "nyc-civic-ingest" in _HEADERS["User-Agent"]

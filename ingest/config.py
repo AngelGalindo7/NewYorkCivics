@@ -50,7 +50,7 @@ class Settings:
     email_provider: str | None = None  # ses | postmark | resend | mailchimp
 
     # --- External APIs ---
-    legistar_token: str | None = None  # LEGISTAR_TOKEN — required for webapi.legistar.com
+    legistar_token: str | None = None  # LEGISTAR_TOKEN — optional (public API is keyless)
 
     # --- Dev overrides (NEVER set in production) ---
     # Bypass the Rule 9 human-review-then-send gate so the full digest pipeline
