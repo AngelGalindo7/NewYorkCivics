@@ -40,6 +40,11 @@ _BIS_PROPERTY = (
     "https://a810-bisweb.nyc.gov/bisweb/PropertyProfileOverviewServlet"
     "?boro={boro}&block={block}&lot={lot}"
 )
+# BIS "Permits In-Process / Issued By BIN" — lands directly on a building's permit list,
+# keyed by BIN. Better than the general property profile for verifying a specific permit.
+_DOB_PERMITS_BY_BIN = (
+    "https://a810-bisweb.nyc.gov/bisweb/PermitsInProcessIssuedByBinServlet?requestid=0&allbin={bin}"
+)
 _HPD_ONLINE = "https://hpdonline.nyc.gov/hpdonline/"
 
 
@@ -73,6 +78,29 @@ def socrata_row(
         verifies="exact_record",
         label=label,
         url=_SOCRATA_RESOURCE.format(dataset=dataset, pk=pk_field, value=pk_value),
+        retrieved_at=retrieved_at,
+    )
+
+
+def dob_permits_by_bin(
+    bin_number: str | None, *, retrieved_at: datetime | None = None
+) -> Citation | None:
+    """BIS "Permits In-Process / Issued By BIN" — the building's permit list (official_lookup).
+
+    Keyed by BIN, a single unambiguous building id, this lands directly on the permits a
+    building has. It sidesteps the condo trap that a block/lot property-profile link falls
+    into: a permit's tax block/lot can point at a development lot while a resident searching
+    the address reaches the condo's billing lot — whose profile reads "no permits" for a
+    real permit. ``None`` if no BIN is available (caller falls back to :func:`bis_property`).
+    """
+    bin_clean = str(bin_number or "").strip()
+    if not bin_clean:
+        return None
+    return Citation(
+        kind="official_lookup",
+        verifies="exact_building",  # this building's permit list, by BIN
+        label="DOB permits for this building (BIS)",
+        url=_DOB_PERMITS_BY_BIN.format(bin=bin_clean),
         retrieved_at=retrieved_at,
     )
 

@@ -175,6 +175,17 @@ def bbl(boro_digit: str | None, block: str | None, lot: str | None) -> str | Non
         return None
 
 
+def _record_bbl(raw: str | None) -> str | None:
+    """A DOB row's own BBL if it is a well-formed 10-digit id, else ``None``.
+
+    DOB rows carry a ``bbl`` field that already resolves a condo to its building/billing
+    lot; preferring it over re-deriving from block/lot avoids pointing at a development
+    lot that no resident reaches by searching the address.
+    """
+    value = str(raw or "").strip()
+    return value if len(value) == 10 and value.isdigit() else None
+
+
 def _parse_iso(value: str | None) -> date | None:
     if not value:
         return None
@@ -287,13 +298,19 @@ def _dob_permit_to_event(rec: Mapping[str, Any]) -> CivicEvent:
                 retrieved_at=now,
             )
         )
-    bis = citations.bis_property(boro_digit, rec.get("block"), rec.get("lot"), retrieved_at=now)
-    if bis:
-        permit_citations.append(bis)
+    # Verify against the building's permit list, keyed by BIN, so the link lands on the
+    # exact building the permit is for — not a development lot that reads as "no permits"
+    # by address. Fall back to the block/lot property profile when the row carries no BIN.
+    building_link = citations.dob_permits_by_bin(
+        rec.get("bin__"), retrieved_at=now
+    ) or citations.bis_property(boro_digit, rec.get("block"), rec.get("lot"), retrieved_at=now)
+    if building_link:
+        permit_citations.append(building_link)
     return CivicEvent(
         source_id=SOURCE_ID_DOB,
         source_record_id=record_id,
-        bbl=bbl(boro_digit, rec.get("block"), rec.get("lot")),
+        # Prefer the row's own canonical BBL over re-deriving from block/lot (condo lots).
+        bbl=_record_bbl(rec.get("bbl")) or bbl(boro_digit, rec.get("block"), rec.get("lot")),
         action_type="permit",
         title=f"DOB {job_type} permit ({label})" if job_type else "DOB permit",
         summary=(
