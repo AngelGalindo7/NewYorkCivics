@@ -203,6 +203,9 @@ def run() -> None:
     if hasattr(sys.stdout, "reconfigure"):  # ensure unicode prints on any console
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
+    from ingest.config import get_settings
+    from ingest.deliver.review import dump_pending
+
     events, is_live = gather_events()
     matched = match_subscriber(SAMPLE_SUBSCRIBER, events)
     digest = build_digest(SAMPLE_SUBSCRIBER, matched, asof=datetime.now(UTC).date())
@@ -214,14 +217,25 @@ def run() -> None:
         f"  |  review required: {digest['review_required']}"
     )
 
-    # Rule 9: a human clears the review queue before send. Simulated here.
+    # Human-review-then-send: a digest with flagged items must be cleared by a person
+    # before it can go out. The dev bypass clears it inline for offline/CI demos; without
+    # the bypass we park the digest for the real reviewer and stop — no fabricated approval.
     if digest["review_required"]:
-        print("\nHUMAN-REVIEW QUEUE (would block send until cleared):")
-        for title in digest["review_items"]:
-            print(f"  - {title}")
-        print("  -> [demo] approving and clearing the queue")
-        digest["review_required"] = False
-        digest["review_items"] = []
+        settings = get_settings()
+        if settings.bypass_human_review:
+            print(
+                "\n[dev bypass] BYPASS_HUMAN_REVIEW is set — clearing the queue (CI/offline only)."
+            )
+            digest = {**digest, "review_required": False, "review_items": []}
+        else:
+            pending_path = dump_pending(digest, SAMPLE_SUBSCRIBER)
+            print(f"\nHUMAN-REVIEW QUEUE: {len(digest['review_items'])} item(s) need review:")
+            for title in digest["review_items"]:
+                print(f"  - {title}")
+            print(f"\nSaved pending digest to: {pending_path}")
+            print("Run the reviewer to clear it and send:")
+            print("  python -m ingest.deliver.review")
+            return
 
     path = send_digest(digest, SAMPLE_SUBSCRIBER)
     print(f"\nDigest written to: {path}\n")

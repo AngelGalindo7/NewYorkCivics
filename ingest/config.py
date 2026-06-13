@@ -47,7 +47,9 @@ class Settings:
     geosupport_gs_library_path: str | None = None
 
     # --- Delivery (Phase 2; unset in v1) ---
-    email_provider: str | None = None  # ses | postmark | resend | mailchimp
+    email_provider: str | None = None  # ses | postmark | resend | mailchimp (resend is built)
+    email_from: str | None = None  # EMAIL_FROM — verified sender address the provider sends from
+    resend_api_key: str | None = None  # RESEND_API_KEY — Resend send API key (never logged)
 
     # --- External APIs ---
     legistar_token: str | None = None  # LEGISTAR_TOKEN — optional (public API is keyless)
@@ -93,6 +95,8 @@ def get_settings() -> Settings:
         geosupport_geofiles=_opt("GEOSUPPORT_GEOFILES"),
         geosupport_gs_library_path=_opt("GEOSUPPORT_GS_LIBRARY_PATH"),
         email_provider=_opt("EMAIL_PROVIDER"),
+        email_from=_opt("EMAIL_FROM"),
+        resend_api_key=_opt("RESEND_API_KEY"),
         legistar_token=_opt("LEGISTAR_TOKEN"),
         bypass_human_review=os.environ.get("BYPASS_HUMAN_REVIEW", "").lower()
         in ("1", "true", "yes"),
