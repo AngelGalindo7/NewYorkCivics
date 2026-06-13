@@ -43,11 +43,6 @@ from ingest.extract.schemas import RecordStatus
 if TYPE_CHECKING:
     from ingest.extract.schemas import CivicEvent
 
-# Default cap on items surfaced for human review per subscriber per run (Rule 9).
-# TODO Phase 2: tune against review-queue clearing time (pivot threshold: if
-# clearing exceeds 30 min/day the validation is too strict — tighten upstream).
-DEFAULT_REVIEW_TOP_N = 10
-
 # Soonest-deadline window (days) that counts as "needs your attention".
 ATTENTION_DEADLINE_DAYS = 14
 
@@ -301,7 +296,6 @@ def build_digest(
     matched: dict[str, list[CivicEvent]],
     *,
     asof: date | None = None,
-    review_top_n: int = DEFAULT_REVIEW_TOP_N,
 ) -> dict[str, Any]:
     """Assemble a review-ready digest for one subscriber.
 
@@ -309,7 +303,6 @@ def build_digest(
         subscriber: the subscriber row (email/address used for the header).
         matched: band -> events, as returned by match.match_subscriber (ranked or not).
         asof: reference date for deadline/recency phrasing (default today).
-        review_top_n: cap on items a human reviews before send (Rule 9).
 
     Returns a structured digest: the forward-looking "Act on this" lead (still-open
     items only, soonest first), the proximity-banded building feed (block ->
@@ -342,9 +335,14 @@ def build_digest(
         return False
 
     attention = [it for it in all_items if _needs_attention(it)]
-    # Top-N most actionable items are what the human actually clears (Rule 9).
-    top_n = sorted(all_items, key=_actionability_key)[:review_top_n]
-    review_items = [it for it in top_n if it["needs_verification"]]
+    # The send gate must cover EVERY needs-verification item the reader would see, not a
+    # bounded slice — otherwise a flagged item that sorts to the back would ship
+    # unreviewed. The human's queue stays short because confidence routing only flags the
+    # genuinely uncertain middle; here we just order those flagged items most-actionable
+    # first so a human clears them in priority order.
+    review_items = sorted(
+        (it for it in all_items if it["needs_verification"]), key=_actionability_key
+    )
 
     footnotes: list[str] = []
     if review_items:
