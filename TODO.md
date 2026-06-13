@@ -103,7 +103,7 @@
 
 These are live failures visible in the digest runner today. Small fixes, high value.
 
-- [ ] **Legistar 403** — `LEGISTAR_TOKEN` not set in `.env`; `discover_cd_hearings` fails on every run. Get a token from `webapi.legistar.com` (free registration), add to `.env` and `.env.example`. Unblocks Council hearing items in the digest.
+- [x] **Legistar 403** — FIXED: the `webapi.legistar.com` read API is public/keyless (there is no self-serve token portal). The connector now requests keyless (token optional, only lifts rate limits) with a descriptive User-Agent, instead of short-circuiting to empty when `LEGISTAR_TOKEN` was unset. Unblocks Council/Land-Use hearing items in the digest.
 - [ ] **ZAP 0 results** — `zap_api.py` returns 0 projects for MN11. Debug the Socrata filter: confirm whether CD11 genuinely has no active filings or the `community_district` / `borough` filter is off. Log the raw query so it's inspectable.
 - [ ] **`SOCRATA_APP_TOKEN` unset** — every Socrata call logs a throttle warning. Add the token to `.env` (free at data.cityofnewyork.us). No behavior change, just removes the rate-limit risk.
 

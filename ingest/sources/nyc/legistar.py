@@ -70,6 +70,14 @@ _BASE = "https://webapi.legistar.com/v1/nyc"
 _PAGE = 200  # safe page size; Legistar defaults to 1000 but smaller is faster
 _TIMEOUT = 30.0  # seconds; Legistar is reasonably fast
 
+# The Legistar Web API serves public, read-only data without authentication, so we send
+# requests keyless by default. A descriptive User-Agent avoids naive bot-blocking 403s;
+# Accept pins JSON.
+_HEADERS = {
+    "User-Agent": "nyc-civic-ingest/0.1 (+https://github.com/AngelGalindo7/NewYorkCivics)",
+    "Accept": "application/json",
+}
+
 # Body names that carry land-use hearings residents care about.
 _LAND_USE_BODIES = frozenset(
     {
@@ -103,23 +111,28 @@ def _get_page(client: httpx.Client, path: str, params: dict[str, Any]) -> list[d
     return resp.json()
 
 
+def _request_params(token: str | None, **params: Any) -> dict[str, Any]:
+    """OData query params for a Legistar request; include the token only when present.
+
+    The public API works keyless, so a missing token is the normal case, not an error — we
+    omit it. A token, when set, only lifts rate limits.
+    """
+    return {"token": token, **params} if token else dict(params)
+
+
 def _get_all(path: str, **params: Any) -> list[dict[str, Any]]:
-    """Paginate a Legistar OData endpoint and return every row."""
+    """Paginate a Legistar OData endpoint and return every row.
+
+    Requests are keyless by default; see :func:`_request_params` for token handling.
+    """
     if httpx is None:
         raise RuntimeError("httpx is not installed; install it with: pip install httpx")
-    token = get_settings().legistar_token
-    if not token:
-        log.warning(
-            "LEGISTAR_TOKEN not set — all Legistar requests will 403; "
-            "register at webapi.legistar.com to get a free token"
-        )
-        return []
-    params = {"token": token, **params}
+    query = _request_params(get_settings().legistar_token, **params)
     rows: list[dict[str, Any]] = []
     skip = 0
-    with httpx.Client(timeout=_TIMEOUT) as client:
+    with httpx.Client(timeout=_TIMEOUT, headers=_HEADERS) as client:
         while True:
-            page = _get_page(client, path, {"$top": _PAGE, "$skip": skip, **params})
+            page = _get_page(client, path, {"$top": _PAGE, "$skip": skip, **query})
             if not page:
                 break
             rows.extend(page)
