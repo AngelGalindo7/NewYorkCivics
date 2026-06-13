@@ -48,7 +48,8 @@ ZAP connector scope (2026-06-01) — step 2 of ADR 0007.
 
   WHAT: pull ZAP land-use applications for East Harlem via the Socrata datasets
         documented in ADR 0007 (hgx4-8ukb primary + 2iga-a6mk BBL join).
-  WHERE: community_district = 'MN11' (Manhattan Community District 11, East Harlem).
+  WHERE: community_district = 'M11' (Manhattan Community District 11, East Harlem;
+        the dataset uses a borough-letter + 2-digit format, e.g. 'M08' — not 'MN11').
   DATASETS (verified live in ADR 0007, 2026-05-31):
     - hgx4-8ukb: ZAP projects; confirmed real fields: ulurp_numbers, project_brief,
                  public_status. Field aliases handle ZAP schema evolution (log on use).
@@ -116,7 +117,10 @@ _TIMEOUT = 60  # seconds
 _BBL_BATCH = 200  # max project_ids per IN clause (keeps SoQL URL length safe)
 
 # East Harlem scope — Manhattan Community District 11 (NYC-SPECIFIC, Rule 4).
-EAST_HARLEM_CD = "MN11"
+# The hgx4-8ukb dataset stores community_district as a borough letter + 2-digit district
+# (e.g. 'M08', 'M04'), confirmed live 2026-06-12 via the 0-row self-diagnostic below —
+# NOT 'MN11'. So Manhattan CD 11 is 'M11'.
+EAST_HARLEM_CD = "M11"
 
 
 @retry(
@@ -354,7 +358,7 @@ def iter_zap_events(
     """Pull ZAP land-use applications for East Harlem and yield CivicEvents.
 
     Two-phase pull (snapshot — see module docstring):
-      1. Page through ``hgx4-8ukb`` filtered to ``community_district='MN11'``
+      1. Page through ``hgx4-8ukb`` filtered to ``community_district='M11'``
          (East Harlem). Collect all project rows in memory.
       2. Batch-fetch BBLs from ``2iga-a6mk`` for the collected ``project_id``s.
       3. Yield one :class:`CivicEvent` per project, ``bbl`` set where available.

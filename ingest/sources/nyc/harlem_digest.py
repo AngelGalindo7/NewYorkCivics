@@ -175,7 +175,7 @@ def _sample_events() -> list[CivicEvent]:
             "public_status": "In Public Review",
             "applicant_name": "East Harlem Realty LLC",
             "lead_action": "Zoning Map Amendment",
-            "community_district": "MN11",
+            "community_district": "M11",
             "primary_address": "123 EAST 116 STREET",
             "certified_referred": f"{today}T00:00:00.000",
             "hearing_date_1": "2026-06-30T00:00:00.000",
