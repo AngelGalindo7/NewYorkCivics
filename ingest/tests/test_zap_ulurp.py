@@ -14,7 +14,7 @@ import pytest
 
 from ingest.extract.schemas import RecordStatus
 from ingest.sources.nyc import citations as cit_mod
-from ingest.sources.nyc.zap_api import SOURCE_ID, _zap_project_to_event
+from ingest.sources.nyc.zap_api import EAST_HARLEM_CD, SOURCE_ID, _zap_project_to_event
 
 # Representative East Harlem ZAP project row; field names mirror the hgx4-8ukb schema
 # as confirmed in ADR 0007. Ids are illustrative (pattern-valid, not live).
@@ -28,7 +28,7 @@ SAMPLE_ZAP_REC = {
     "public_status": "In Public Review",
     "applicant_name": "East Harlem Realty LLC",
     "lead_action": "Zoning Map Amendment",
-    "community_district": "MN11",
+    "community_district": "M11",  # dataset format: borough letter + 2-digit district
     "borough": "Manhattan",
     "primary_address": "123 East 116th Street",
     "certified_referred": "2024-03-15T00:00:00.000",
@@ -41,6 +41,21 @@ SAMPLE_BBL = "1016500030"
 @pytest.fixture
 def zap_event():
     return _zap_project_to_event(SAMPLE_ZAP_REC, bbl_value=SAMPLE_BBL)
+
+
+# --------------------------------------------------------------------------- #
+# community_district format (the hgx4-8ukb dataset)                            #
+# --------------------------------------------------------------------------- #
+
+
+def test_east_harlem_cd_matches_dataset_format():
+    # hgx4-8ukb stores community_district as a borough letter + 2-digit district
+    # (e.g. 'M08', 'M04'), confirmed live 2026-06-12 via the connector's 0-row
+    # self-diagnostic — NOT the 'MN11' originally guessed. East Harlem = 'M11'.
+    import re
+
+    assert EAST_HARLEM_CD == "M11"
+    assert re.fullmatch(r"[A-Z]\d{2}", EAST_HARLEM_CD)
 
 
 # --------------------------------------------------------------------------- #

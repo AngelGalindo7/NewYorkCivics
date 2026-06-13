@@ -104,7 +104,7 @@
 These are live failures visible in the digest runner today. Small fixes, high value.
 
 - [x] **Legistar 403** — FIXED: the `webapi.legistar.com` read API is public/keyless (there is no self-serve token portal). The connector now requests keyless (token optional, only lifts rate limits) with a descriptive User-Agent, instead of short-circuiting to empty when `LEGISTAR_TOKEN` was unset. Unblocks Council/Land-Use hearing items in the digest.
-- [ ] **ZAP 0 results** — `zap_api.py` returns 0 projects for MN11. Debug the Socrata filter: confirm whether CD11 genuinely has no active filings or the `community_district` / `borough` filter is off. Log the raw query so it's inspectable.
+- [x] **ZAP 0 results** — FIXED: the `hgx4-8ukb` dataset stores `community_district` as a borough-letter + 2-digit code (e.g. `M08`), so East Harlem is `M11`, not `MN11`. Confirmed live 2026-06-12 via the connector's 0-row self-diagnostic (it logged the real sample values). `EAST_HARLEM_CD` corrected to `M11`.
 - [ ] **`SOCRATA_APP_TOKEN` unset** — every Socrata call logs a throttle warning. Add the token to `.env` (free at data.cityofnewyork.us). No behavior change, just removes the rate-limit risk.
 
 ---
