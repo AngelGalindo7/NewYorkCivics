@@ -100,6 +100,8 @@ def _category_weight(action_type: str | None) -> float:
         return 0.5
     if action_type == "building_energy_grade":
         return 0.3  # building context, not an action a reader takes — ranks below a permit
+    if action_type == "habitability_complaints":
+        return 0.35  # a cluster of 311 reports is context (and a report, not a confirmed fact)
     if action_type and "hearing" in action_type:
         return 0.7
     if action_type in _PUBLIC_REVIEW_ACTIONS:  # rezoning, special permit, variance, ...

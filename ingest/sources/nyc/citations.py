@@ -62,6 +62,7 @@ KNOWN_DATASETS = (
     "hgx4-8ukb",  # ZAP land-use projects (ulurp_numbers, project_brief, public_status)
     "2iga-a6mk",  # ZAP project-BBL rows (project_id -> bbl, many-to-many)
     "355w-xvp2",  # DOB Local Law 33 energy letter grade (bbl-native, A-F)
+    "erm2-nwe9",  # 311 Service Requests (bbl-native; severe-complaint enrichment)
 )
 
 
