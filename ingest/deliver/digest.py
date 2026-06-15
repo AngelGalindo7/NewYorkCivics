@@ -98,6 +98,8 @@ def _category_weight(action_type: str | None) -> float:
         return 0.6
     if action_type == "permit":
         return 0.5
+    if action_type == "building_energy_grade":
+        return 0.3  # building context, not an action a reader takes — ranks below a permit
     if action_type and "hearing" in action_type:
         return 0.7
     if action_type in _PUBLIC_REVIEW_ACTIONS:  # rezoning, special permit, variance, ...
