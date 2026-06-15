@@ -5,13 +5,13 @@ Single responsibility: pull NYC's Local Law 33 building energy-efficiency **lett
 canonical :class:`~ingest.extract.schemas.CivicEvent` shape, and surface it as low-key
 *context on a building* — the legitimate, government-graded "is this building well-run"
 proxy. The dataset is clean structured JSON, so this connector emits records directly and
-SKIPS Parse and Extract entirely (Rule 1).
+skips Parse and Extract entirely (structured feeds never call the LLM).
 
 Resident value: "the building next door (or my own) scored a D/F on the City's energy grade"
 — an official accountability signal, posted by law at the building's public entrance, that
-threads onto the same BBL as its permits and violations (Rule 7 / Rule 15). It is *context*,
-not an action item: there is no hearing to attend, so it never leads the "Act on this"
-section — it rides along with the building it describes.
+threads onto the same BBL as its permits and violations. It is *context*, not an action item:
+there is no hearing to attend, so it never leads the "Act on this" section — it rides along
+with the building it describes.
 
 Why only D/F (the severity threshold): an A-C grade is good or average news and not
 actionable; surfacing every graded building would firehose the digest (200 D/F buildings
@@ -25,18 +25,17 @@ Shared machinery: the generic Socrata pull (:class:`~ingest.sources.nyc.dob_hpd.
 grade is "just another scoped feed." Only the dataset id, the East Harlem scope, the mapper,
 and the severity threshold are new here.
 
-Rules honored
--------------
-- Rule 1  (LLM only on dirty inputs): structured -> NO LLM, ever. The plain-English grade
-          explanation is a deterministic template, not generation.
-- Rule 4  (NYC-specific code in nyc/): the dataset id, the East Harlem BBL scope, and the
-          Local Law 33 grade vocabulary are NYC knowledge and stay here.
-- Rule 7  (project_thread_id + JSONB): the grade threads onto ``bbl:<BBL>`` so it groups with
-          a building's permits/violations; per-source quirks go in ``extras``.
-- Rule 10 (confidence routing): a posted City grade is a fact, not an inference ->
-          ``confidence=1.0``, ``status=ACCEPTED``.
-- Rule 15 (SoR key = (source_id, source_record_id) + BBL): the dataset is BBL-native, so
-          ``source_record_id = bbl`` and the cross-source join key is free (no geocoding).
+Design notes
+------------
+- Structured in, so no LLM ever: the plain-English grade gloss is a deterministic template,
+  not generation.
+- NYC-specific knowledge stays here: the dataset id, the East Harlem BBL scope, and the
+  Local Law 33 grade vocabulary live in this connector.
+- The grade threads onto ``bbl:<BBL>`` so it groups with a building's permits/violations;
+  per-source quirks go in ``extras``.
+- A posted City grade is a fact, not an inference -> ``confidence=1.0``, ``status=ACCEPTED``.
+- The dataset is BBL-native, so ``source_record_id = bbl`` and the cross-source join key is
+  free (no geocoding).
 
 ================================ DECISION RECORD ================================
 Energy-grade enrichment scope (2026-06-13) — SPEC_NEXT_PHASE §B.2 ("official grades YES").
@@ -83,9 +82,9 @@ DATASET_ENERGY = "355w-xvp2"  # DOB Sustainability Compliance Map: Local Law 33 
 EAST_HARLEM_BBL_LO = "1016000000"
 EAST_HARLEM_BBL_HI = "1018209999"
 
-# Severity threshold (Rule-8 companion): only below-average grades are actionable context.
-# A-C is good/average news and would firehose the digest; D/F is the "poorly-run building"
-# signal. Tunable, NYC-specific — mirrors the displacement windows in dob_hpd.
+# Severity threshold: only below-average grades are actionable context. A-C is good/average
+# news and would firehose the digest; D/F is the "poorly-run building" signal. Tunable,
+# NYC-specific — mirrors the displacement windows in dob_hpd.
 POOR_ENERGY_GRADES = ("D", "F")
 # NYC's Local Law 33 scale runs A (best) to F (worst); it skips E.
 VALID_ENERGY_GRADES = ("A", "B", "C", "D", "F")
@@ -103,7 +102,7 @@ def _valid_bbl(raw: Any) -> str | None:
 
 
 def _grade_meaning(grade: str) -> str:
-    """Plain-language, factually-honest gloss for a Local Law 33 letter grade (Rule 1).
+    """Plain-language, factually-honest gloss for a Local Law 33 letter grade (deterministic).
 
     NYC requires covered buildings (>25,000 sq ft) to post this grade at their public
     entrance. D is below average; F is the lowest grade — typically posted when a building
@@ -120,7 +119,7 @@ def _grade_meaning(grade: str) -> str:
 
 
 def _energy_grade_to_event(rec: Mapping[str, Any]) -> CivicEvent:
-    """Map one ``355w-xvp2`` row to a canonical :class:`CivicEvent` (no LLM — Rule 1).
+    """Map one ``355w-xvp2`` row to a canonical :class:`CivicEvent` (deterministic, no LLM).
 
     Grade is *context on a building*, so the event carries no ``event_date`` or ``deadline``
     (there is nothing to act on by a date) — it rides along with the building it describes.
@@ -153,15 +152,16 @@ def _energy_grade_to_event(rec: Mapping[str, Any]) -> CivicEvent:
     return CivicEvent(
         source_id=SOURCE_ID_ENERGY,
         # BBL is the dataset's natural key (one grade per building); it is also the
-        # cross-source join key, so the SoR identity and the join key coincide (Rule 15).
+        # cross-source join key, so the per-source identity and the join key coincide.
         source_record_id=record_bbl or str(rec.get("bbl") or ""),
         bbl=record_bbl,
-        project_thread_id=f"bbl:{record_bbl}" if record_bbl else None,  # Rule 7
+        # threads onto the building so the grade groups with its permits/violations
+        project_thread_id=f"bbl:{record_bbl}" if record_bbl else None,
         action_type="building_energy_grade",
         title=f"Building energy grade {grade} (Local Law 33)",
         summary=summary,
         address=addr,
-        confidence=1.0,  # a posted City grade is a fact, not an inference (Rule 10)
+        confidence=1.0,  # a posted City grade is a fact, not an inference
         status=RecordStatus.ACCEPTED,
         citations=grade_citations,
         extras={
@@ -191,7 +191,7 @@ def discover_energy_grades(
     poor_only: bool = True,
     limit: int | None = None,
 ) -> Iterator[CivicEvent]:
-    """Yield Local Law 33 energy-grade events for East Harlem buildings (Rule 1, no LLM).
+    """Yield Local Law 33 energy-grade events for East Harlem buildings (deterministic, no LLM).
 
     Args:
         bbls: Restrict to these BBLs — the enrichment path. When the runner passes the
@@ -203,7 +203,7 @@ def discover_energy_grades(
         limit: Optional cap on records yielded (handy for demos/tests).
 
     Yields:
-        One ACCEPTED :class:`CivicEvent` per graded building, keyed on BBL (Rule 15).
+        One ACCEPTED :class:`CivicEvent` per graded building, keyed on BBL.
     """
     bbl_list = tuple(sorted({b for b in (bbls or ()) if _valid_bbl(b)}))
     if bbls is not None and not bbl_list:

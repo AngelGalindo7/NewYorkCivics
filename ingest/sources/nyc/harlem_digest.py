@@ -81,12 +81,11 @@ def gather_live_events(
     for the next ``legistar_days`` days (Phase 1 gate). Hearings have no per-building
     BBL so they land in the ``in_your_area`` band of the digest (all of East Harlem).
 
-    ``include_grades`` is off by default (flip on after a spot-check): it enriches the
-    buildings already surfaced above with their Local Law 33 energy letter grade,
-    surfacing only the below-average (D/F) grades as low-key building context. It is
-    bounded to the surfaced BBLs, so it never firehoses; coordinates are carried over
-    from the surfaced event so the grade threads into the same proximity band as the
-    building's permits/violations (Rule 7).
+    ``include_grades`` (enabled by the runner) enriches the buildings already surfaced
+    above with their Local Law 33 energy letter grade, surfacing only the below-average
+    (D/F) grades as low-key building context. It is bounded to the surfaced BBLs, so it
+    never firehoses; coordinates are carried over from the surfaced event so the grade
+    threads into the same proximity band as the building's permits/violations.
     """
     events: list[CivicEvent] = []
     events += list(
@@ -109,7 +108,12 @@ def gather_live_events(
     if include_signal:
         events += list(islice(discover_displacement_signals(), signals))
     if include_grades:
-        events += _enrich_with_energy_grades(events)
+        # Enrichments are additive context: a grade-fetch failure must never discard the
+        # core digest, so it fails soft (warn + skip) while the base feeds above fail loud.
+        try:
+            events += _enrich_with_energy_grades(events)
+        except Exception as exc:  # network/API hiccup on a supplementary feed -> skip it
+            log.warning("energy-grade enrichment skipped (%s)", exc)
     return events
 
 
@@ -119,7 +123,7 @@ def _enrich_with_energy_grades(events: list[CivicEvent]) -> list[CivicEvent]:
     Bounded to the surfaced BBLs so it cannot firehose. A grade row carries no
     coordinates, so we carry over the lat/lng of a co-located surfaced event on the
     same BBL — accurate, since it is literally the same building — so the grade lands
-    in the same proximity band and groups with that building's events (Rule 7).
+    in the same proximity band and groups with that building's events.
     """
     coords_by_bbl: dict[str, tuple[float, float]] = {
         ev.bbl: (ev.latitude, ev.longitude)
@@ -217,7 +221,7 @@ def _sample_events() -> list[CivicEvent]:
         bbl_value="1016500030",
     )
     # Local Law 33 energy grade on the subscriber's own building (same BBL) — threads
-    # with the HPD/DOB events into one building group as low-key context (Rule 7).
+    # with the HPD/DOB events into one building group as low-key context.
     from ingest.sources.nyc.building_grades import _energy_grade_to_event
 
     grade = _energy_grade_to_event(
@@ -238,7 +242,9 @@ def _sample_events() -> list[CivicEvent]:
 def gather_events() -> tuple[list[CivicEvent], bool]:
     """Return (events, is_live). Falls back to sample data if the API is unreachable."""
     try:
-        events = gather_live_events()
+        # Energy-grade enrichment is on: it is structured, row-cited, ACCEPTED context
+        # bounded to the surfaced buildings, and fails soft, so it is safe in the live path.
+        events = gather_live_events(include_grades=True)
         if events:
             return events, True
         log.warning("live feeds returned no events; using sample data")

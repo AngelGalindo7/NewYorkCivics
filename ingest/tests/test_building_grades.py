@@ -1,10 +1,10 @@
 """Contract tests for the Local Law 33 energy-grade enrichment connector.
 
 Runs fully offline against hardcoded ``355w-xvp2`` rows (no Socrata, no DB). Locks the
-trust-critical properties: source identity + BBL-as-key (Rule 15), the BBL thread (Rule 7),
-confidence routing for a posted City grade (Rule 10), citation audit (Rule 5), the D/F
-severity threshold, graceful handling of a malformed BBL / non-letter grade, and that an
-energy-grade event drops straight into the city-agnostic deliver pipeline (Rule 4 seam check).
+trust-critical properties: source identity + BBL-as-key, the BBL thread, full-confidence
+ACCEPTED routing for a posted City grade, the citation audit, the D/F severity threshold,
+graceful handling of a malformed BBL, and that an energy-grade event drops straight into the
+city-agnostic deliver pipeline (the connector/core seam check).
 """
 
 from __future__ import annotations
@@ -42,7 +42,7 @@ def grade_event():
 
 
 # --------------------------------------------------------------------------- #
-# Rule 15: source identity + BBL is the key                                    #
+# Source identity + BBL is the key                                             #
 # --------------------------------------------------------------------------- #
 
 
@@ -58,7 +58,7 @@ def test_bbl_is_the_source_record_id(grade_event):
 
 
 # --------------------------------------------------------------------------- #
-# Rule 7: the energy grade threads onto the building                           #
+# The energy grade threads onto the building                                   #
 # --------------------------------------------------------------------------- #
 
 
@@ -71,7 +71,7 @@ def test_action_type_is_building_energy_grade(grade_event):
 
 
 # --------------------------------------------------------------------------- #
-# Rule 10: a posted City grade is a fact, not an inference                     #
+# A posted City grade is a fact, not an inference                              #
 # --------------------------------------------------------------------------- #
 
 
@@ -87,7 +87,7 @@ def test_grade_is_context_not_an_action_item(grade_event):
 
 
 # --------------------------------------------------------------------------- #
-# Plain-English summary (Rule 1: deterministic, honest, no over-claim)         #
+# Plain-English summary (deterministic, honest, no over-claim)                 #
 # --------------------------------------------------------------------------- #
 
 
@@ -112,7 +112,7 @@ def test_extras_carry_the_grade_fields(grade_event):
 
 
 # --------------------------------------------------------------------------- #
-# Rule 5: every emitted citation passes the structural audit                   #
+# Every emitted citation passes the structural audit                           #
 # --------------------------------------------------------------------------- #
 
 
@@ -131,7 +131,7 @@ def test_dataset_is_registered_for_the_audit():
 
 
 # --------------------------------------------------------------------------- #
-# Severity threshold + fail-soft parsing (Rule 2)                              #
+# Severity threshold + fail-soft parsing                                       #
 # --------------------------------------------------------------------------- #
 
 
@@ -163,7 +163,7 @@ def test_malformed_bbl_yields_no_citation_no_thread():
 
 
 # --------------------------------------------------------------------------- #
-# Rule 4 seam check: the event flows through the city-agnostic deliver path    #
+# Seam check: the event flows through the city-agnostic deliver path           #
 # --------------------------------------------------------------------------- #
 
 
@@ -187,3 +187,36 @@ def test_category_weight_ranks_grade_below_a_permit():
 
     assert _category_weight("building_energy_grade") == 0.3
     assert _category_weight("building_energy_grade") < _category_weight("permit")
+
+
+# --------------------------------------------------------------------------- #
+# Runner enrichment pass: coordinate backfill so a grade threads to its building #
+# --------------------------------------------------------------------------- #
+
+
+def test_enrichment_backfills_coords_for_threading(monkeypatch):
+    # A grade row carries no coordinates of its own. The runner must stamp the lat/lng of
+    # a co-located surfaced event on the same building, so the grade lands in the same
+    # proximity band and groups with that building's permits/violations instead of being
+    # banded to the catch-all "in your area".
+    from ingest.extract.schemas import CivicEvent
+    from ingest.sources.nyc import harlem_digest
+
+    surfaced = CivicEvent(
+        source_id="nyc_dob_now",
+        source_record_id="P1",
+        bbl="1016500030",
+        latitude=40.7969,
+        longitude=-73.9410,
+        status=RecordStatus.ACCEPTED,
+    )
+    grade = _energy_grade_to_event(SAMPLE_GRADE_REC)  # same BBL, no coordinates
+    assert grade.latitude is None and grade.longitude is None
+
+    monkeypatch.setattr(harlem_digest, "discover_energy_grades", lambda bbls: iter([grade]))
+    enriched = harlem_digest._enrich_with_energy_grades([surfaced])
+
+    assert len(enriched) == 1
+    assert enriched[0].bbl == "1016500030"
+    assert enriched[0].latitude == 40.7969  # carried over from the surfaced event
+    assert enriched[0].longitude == -73.9410
