@@ -52,7 +52,7 @@ class Settings:
     resend_api_key: str | None = None  # RESEND_API_KEY — Resend send API key (never logged)
 
     # --- External APIs ---
-    legistar_token: str | None = None  # LEGISTAR_TOKEN — optional (public API is keyless)
+    legistar_token: str | None = None  # LEGISTAR_TOKEN — optional (vendor-only; scrape fallback)
 
     # --- Dev overrides (NEVER set in production) ---
     # Bypass the Rule 9 human-review-then-send gate so the full digest pipeline
