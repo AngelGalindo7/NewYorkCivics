@@ -18,6 +18,7 @@ Run:  python -m ingest.sources.nyc.harlem_digest
 
 from __future__ import annotations
 
+from collections.abc import Callable, Iterable
 from datetime import UTC, date, datetime
 from itertools import islice
 
@@ -36,6 +37,7 @@ from ingest.sources.nyc.dob_hpd import (
     iter_feed,
 )
 from ingest.sources.nyc.legistar import discover_cd_hearings
+from ingest.sources.nyc.service_requests import discover_service_requests
 from ingest.sources.nyc.zap_api import _zap_project_to_event, iter_zap_events
 
 log = get_logger(__name__)
@@ -66,6 +68,7 @@ def gather_live_events(
     include_legistar: bool = True,
     legistar_days: int = 30,
     include_grades: bool = False,
+    include_311: bool = False,
 ) -> list[CivicEvent]:
     """Pull a bounded slice of recent East Harlem events from the live feeds.
 
@@ -86,6 +89,11 @@ def gather_live_events(
     (D/F) grades as low-key building context. It is bounded to the surfaced BBLs, so it
     never firehoses; coordinates are carried over from the surfaced event so the grade
     threads into the same proximity band as the building's permits/violations.
+
+    ``include_311`` (enabled by the runner) attaches a per-building summary of recent
+    severe 311 complaints (habitability/safety types only) to the surfaced buildings.
+    Like the grades, it is bounded to the surfaced BBLs and is low-key context, never a
+    headline -- and it is framed as resident reports, not confirmed violations.
     """
     events: list[CivicEvent] = []
     events += list(
@@ -107,23 +115,33 @@ def gather_live_events(
         events += discover_cd_hearings("MN11", days_ahead=legistar_days)
     if include_signal:
         events += list(islice(discover_displacement_signals(), signals))
+    # Enrichments are additive context: a fetch failure on a supplementary feed must never
+    # discard the core digest, so each fails soft (warn + skip) while the base feeds fail loud.
     if include_grades:
-        # Enrichments are additive context: a grade-fetch failure must never discard the
-        # core digest, so it fails soft (warn + skip) while the base feeds above fail loud.
         try:
             events += _enrich_with_energy_grades(events)
         except Exception as exc:  # network/API hiccup on a supplementary feed -> skip it
             log.warning("energy-grade enrichment skipped (%s)", exc)
+    if include_311:
+        try:
+            events += _enrich_with_service_requests(events)
+        except Exception as exc:  # network/API hiccup on a supplementary feed -> skip it
+            log.warning("311 enrichment skipped (%s)", exc)
     return events
 
 
-def _enrich_with_energy_grades(events: list[CivicEvent]) -> list[CivicEvent]:
-    """Pull D/F energy grades for the buildings already surfaced, threaded to their BBL.
+def _enrich_surfaced(
+    events: list[CivicEvent],
+    discover: Callable[..., Iterable[CivicEvent]],
+) -> list[CivicEvent]:
+    """Run a BBL-keyed enrichment over the buildings already surfaced, backfilling coords.
 
-    Bounded to the surfaced BBLs so it cannot firehose. A grade row carries no
-    coordinates, so we carry over the lat/lng of a co-located surfaced event on the
-    same BBL — accurate, since it is literally the same building — so the grade lands
-    in the same proximity band and groups with that building's events.
+    The enrichment ``discover(bbls=...)`` is looked up only for the BBLs the base feeds
+    already surfaced, so it is bounded by the building feed and cannot firehose. An enrichment
+    event that arrives without coordinates (e.g. an energy grade) inherits the lat/lng of a
+    co-located surfaced event on the same BBL — it is literally the same building — so it lands
+    in the same proximity band and groups with that building's events. An enrichment that
+    already carries coordinates (e.g. a 311 summary) is left untouched.
     """
     coords_by_bbl: dict[str, tuple[float, float]] = {
         ev.bbl: (ev.latitude, ev.longitude)
@@ -132,12 +150,23 @@ def _enrich_with_energy_grades(events: list[CivicEvent]) -> list[CivicEvent]:
     }
     bbls = {ev.bbl for ev in events if ev.bbl}
     enriched: list[CivicEvent] = []
-    for grade in discover_energy_grades(bbls=bbls):
-        coords = coords_by_bbl.get(grade.bbl or "")
-        if coords is not None:
-            grade = grade.model_copy(update={"latitude": coords[0], "longitude": coords[1]})
-        enriched.append(grade)
+    for ev in discover(bbls=bbls):
+        if (ev.latitude is None or ev.longitude is None) and (
+            coords := coords_by_bbl.get(ev.bbl or "")
+        ):
+            ev = ev.model_copy(update={"latitude": coords[0], "longitude": coords[1]})
+        enriched.append(ev)
     return enriched
+
+
+def _enrich_with_energy_grades(events: list[CivicEvent]) -> list[CivicEvent]:
+    """Pull D/F energy grades for the buildings already surfaced, threaded to their BBL."""
+    return _enrich_surfaced(events, discover_energy_grades)
+
+
+def _enrich_with_service_requests(events: list[CivicEvent]) -> list[CivicEvent]:
+    """Summarize recent severe 311 complaints for the buildings already surfaced."""
+    return _enrich_surfaced(events, discover_service_requests)
 
 
 def _sample_events() -> list[CivicEvent]:
@@ -236,15 +265,46 @@ def _sample_events() -> list[CivicEvent]:
             "building_count": "1",
         }
     )
-    return [v, p, nb, signal, z, grade]
+    # A severe-311 summary on the subscriber's own building (same BBL), built from inline
+    # tickets through the real aggregation — threads as low-key context, framed as reports.
+    from ingest.sources.nyc.service_requests import _summarize_building, _ticket_to_event
+
+    tickets = [
+        _ticket_to_event(
+            {
+                "unique_key": "DEMO311001",
+                "bbl": "1016500030",
+                "complaint_type": "HEAT/HOT WATER",
+                "descriptor": "ENTIRE BUILDING",
+                "status": "Closed",
+                "incident_address": "123 EAST 116 STREET",
+                "created_date": "2026-05-20T08:00:00.000",
+                "latitude": "40.7969",
+                "longitude": "-73.9410",
+            }
+        ),
+        _ticket_to_event(
+            {
+                "unique_key": "DEMO311002",
+                "bbl": "1016500030",
+                "complaint_type": "PLUMBING",
+                "status": "Open",
+                "incident_address": "123 EAST 116 STREET",
+                "created_date": "2026-06-02T08:00:00.000",
+            }
+        ),
+    ]
+    complaints = _summarize_building("1016500030", tickets)
+    return [v, p, nb, signal, z, grade, complaints]
 
 
 def gather_events() -> tuple[list[CivicEvent], bool]:
     """Return (events, is_live). Falls back to sample data if the API is unreachable."""
     try:
-        # Energy-grade enrichment is on: it is structured, row-cited, ACCEPTED context
-        # bounded to the surfaced buildings, and fails soft, so it is safe in the live path.
-        events = gather_live_events(include_grades=True)
+        # Energy-grade and severe-311 enrichments are on: both are structured, row-cited,
+        # ACCEPTED context bounded to the surfaced buildings, and fail soft, so they are safe
+        # in the live path.
+        events = gather_live_events(include_grades=True, include_311=True)
         if events:
             return events, True
         log.warning("live feeds returned no events; using sample data")
