@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from datetime import date as _date
 from urllib.parse import urljoin
 
 try:
@@ -43,7 +44,7 @@ log = get_logger(__name__)
 SOURCE_ID = "nyc_cb_mn11"
 _LISTING_URL = (
     "https://www.nyc.gov/site/manhattancb11/meetings/meeting-notices.page"
-    # The nyc.gov/site/manhattancb11 subdomain was retired ~2026.
+    # The nyc.gov/site/manhattancb11 subdomain has been retired.
     # Update this URL when CB11 migrates to its new home.
 )
 _TIMEOUT = 20.0
@@ -139,7 +140,10 @@ def _extract_date(text: str) -> str | None:
             month = int(m.group(1))
             day = int(m.group(2))
             year = int(m.group(3))
-        return f"{year:04d}-{month:02d}-{day:02d}"
+        try:
+            return _date(year, month, day).isoformat()
+        except ValueError:
+            continue
     return None
 
 
