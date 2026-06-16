@@ -25,7 +25,7 @@ def test_module_imports_clean():
 
 def test_discover_agendas_returns_list():
     # discover_agendas() must return a list (possibly empty) and never raise.
-    result = discover_agendas("MN11")
+    result = discover_agendas(None)
     assert isinstance(result, list)
 
 

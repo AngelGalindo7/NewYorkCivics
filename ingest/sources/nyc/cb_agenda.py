@@ -6,14 +6,14 @@ source: agendas are PDFs across ~59 board websites with wildly inconsistent
 layouts. This module only fetches bytes + identity metadata; it does NOT parse or
 extract — those are the city-agnostic Parse and Extract stages.
 
-Rules honored
--------------
-- Rule 1 (LLM only on dirty inputs): no LLM here. Fetch is deterministic; the LLM
-  fires later, in Extract, on the parsed PDF.
-- Rule 3 (quote the source): preserve raw bytes faithfully so every downstream
-  fact can trace back to a verbatim line in the original agenda.
-- Rule 4 (NYC-specific code in nyc/): board URLs and the ~59-board roster are NYC
-  knowledge and stay in this package.
+Design notes
+------------
+- No LLM at this stage: fetch is deterministic; any model-assisted extraction
+  fires later, in the Extract stage, on the parsed PDF.
+- Raw bytes are preserved faithfully so every downstream fact can trace back to a
+  verbatim line in the original agenda (source grounding).
+- Board URLs and the ~59-board roster are NYC-specific knowledge and stay in
+  this package (nyc/).
 
 This is one of the two PDF connectors (with ``ulurp_packet``). The ~59 boards
 cluster by website template; Phase 2 builds fetchers per cluster (likely 5-20),
@@ -207,8 +207,7 @@ def fetch(url: str) -> bytes:
         url: Direct PDF link from an :class:`AgendaRef`.
 
     Returns:
-        Raw PDF bytes, handed verbatim to Parse (preserved for source grounding,
-        Rule 3).
+        Raw PDF bytes, handed verbatim to Parse (preserved for source grounding).
     """
     if httpx is None:
         raise ImportError("httpx is required for cb_agenda.fetch()")
@@ -221,4 +220,4 @@ def fetch(url: str) -> bytes:
 # TODO Phase 2: build the board roster + per-cluster fetchers; verify real cluster
 #   count in week 4 (may be 15-20; the long tail is where time goes).
 # TODO Phase 2: link discovered agendas to a project_thread_id where the meeting
-#   references a known ULURP/ZAP item (Rule 7).
+#   references a known ULURP/ZAP item (cross-source correlation).
