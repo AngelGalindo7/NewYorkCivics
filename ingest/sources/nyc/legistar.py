@@ -19,11 +19,16 @@ Rules honored
 
 Implementation note: python-legistar-scraper is NOT on PyPI (see requirements.txt).
 This connector calls the Legistar REST API directly via httpx. NYC's client id is
-``nyc``; the base URL is https://webapi.legistar.com/v1/nyc.
+``nyc``; the base URL is https://webapi.legistar.com/v1/nyc. The REST API now returns
+403 to keyless callers (the vendor locked the public endpoint down and there is no
+self-serve token), so when it is unavailable the connector falls back to scraping the
+public web calendar at https://legistar.council.nyc.gov/Calendar.aspx — same meetings,
+same Event shape — behind the same ``discover_*`` interface.
 """
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, time, timedelta
 from typing import TYPE_CHECKING, Any
@@ -58,6 +63,15 @@ except ImportError:
         return None
 
 
+# Separate guard: the web-calendar fallback parses HTML with BeautifulSoup. Keep this
+# independent of the httpx/tenacity guard so missing bs4 disables only the fallback parse,
+# not the API path — and so the module still imports clean in CI with only pydantic present.
+try:
+    from bs4 import BeautifulSoup
+except ImportError:
+    BeautifulSoup = None
+
+
 from ingest.config import get_settings
 from ingest.extract.schemas import Citation, CivicEvent, RecordStatus
 from ingest.observability import get_logger
@@ -67,12 +81,14 @@ log = get_logger(__name__)
 SOURCE_ID = "nyc_legistar"
 
 _BASE = "https://webapi.legistar.com/v1/nyc"
+_CALENDAR_URL = "https://legistar.council.nyc.gov/Calendar.aspx"  # web-calendar fallback
 _PAGE = 200  # safe page size; Legistar defaults to 1000 but smaller is faster
 _TIMEOUT = 30.0  # seconds; Legistar is reasonably fast
 
-# The Legistar Web API serves public, read-only data without authentication, so we send
-# requests keyless by default. A descriptive User-Agent avoids naive bot-blocking 403s;
-# Accept pins JSON.
+# The Legistar Web API now rejects keyless callers with a 403 (the vendor locked the public
+# endpoint down), so the keyless API attempt typically fails and triggers the web-calendar
+# fallback. The descriptive User-Agent is still sent on the API attempt — it avoids naive
+# bot-blocking and is reused for the web-calendar fetch; Accept pins JSON for the API.
 _HEADERS = {
     "User-Agent": "nyc-civic-ingest/0.1 (+https://github.com/AngelGalindo7/NewYorkCivics)",
     "Accept": "application/json",
@@ -114,8 +130,9 @@ def _get_page(client: httpx.Client, path: str, params: dict[str, Any]) -> list[d
 def _request_params(token: str | None, **params: Any) -> dict[str, Any]:
     """OData query params for a Legistar request; include the token only when present.
 
-    The public API works keyless, so a missing token is the normal case, not an error — we
-    omit it. A token, when set, only lifts rate limits.
+    A keyless call is still attempted when no token is set, but the public API now typically
+    answers keyless callers with a 403, which triggers the web-calendar fallback upstream. A
+    token, when supplied by the vendor, authorizes the request and lifts rate limits.
     """
     return {"token": token, **params} if token else dict(params)
 
@@ -164,6 +181,113 @@ def _parse_event_time(value: str | None) -> time | None:
         except ValueError:
             continue
     return None
+
+
+# ── Web-calendar fallback ─────────────────────────────────────────────────────
+#
+# The REST API now returns 403 to keyless callers. The public web calendar lists the same
+# meetings, so we scrape it and reshape each grid row into the SAME dict keys the REST API
+# returns — letting ``_event_to_civic`` map scraped and API rows identically. The calendar
+# is a Telerik RadGrid; the only reliable anchor per meeting is its MeetingDetail link, whose
+# ``ID`` query param is the Legistar EventId, so we locate rows via that anchor rather than by
+# the grid's element id (which resolves to a wrapper div under the stdlib HTML parser).
+
+
+def _us_date_to_iso(text: str) -> str | None:
+    """Convert a calendar 'MM/DD/YYYY' date to an ISO datetime string, or None."""
+    try:
+        return datetime.strptime(text.strip(), "%m/%d/%Y").strftime("%Y-%m-%dT00:00:00")
+    except (ValueError, AttributeError):
+        return None
+
+
+def _parse_calendar_row(row: Any, detail: Any) -> dict[str, Any] | None:
+    """Map one web-calendar grid row to an API-shaped Event dict, or None to skip."""
+    m = re.search(r"[?&]ID=(\d+)", detail.get("href") or "")
+    if not m:
+        return None
+    date_el = row.find("td", class_="rgSorted")
+    iso_date = _us_date_to_iso(date_el.get_text(strip=True)) if date_el else None
+    if iso_date is None:
+        return None  # a forward-looking calendar entry is useless without a date
+    body_el = row.find("a", id=re.compile(r"_hypBody$"))
+    time_el = row.find("span", id=re.compile(r"_lblTime$"))
+    cells = row.find_all("td", recursive=False)
+    location = cells[4].get_text(" ", strip=True) if len(cells) > 4 else ""
+    return {
+        "EventId": int(m.group(1)),
+        "EventBodyName": body_el.get_text(strip=True) if body_el else "",
+        "EventDate": iso_date,
+        "EventTime": time_el.get_text(strip=True) if time_el else None,
+        "EventLocation": location,
+        "EventAgendaStatusName": "",
+    }
+
+
+def _parse_calendar_html(html: str) -> list[dict[str, Any]]:
+    """Parse the Legistar web-calendar HTML into API-shaped Event dicts."""
+    if BeautifulSoup is None:
+        raise RuntimeError(
+            "beautifulsoup4 is not installed; install it with: pip install beautifulsoup4"
+        )
+    soup = BeautifulSoup(html, "html.parser")
+    events: list[dict[str, Any]] = []
+    for detail in soup.find_all("a", id=re.compile(r"_hypMeetingDetail$")):
+        row = detail.find_parent("tr")
+        if row is None:
+            continue
+        ev = _parse_calendar_row(row, detail)
+        if ev is not None:
+            events.append(ev)
+    return events
+
+
+def _scrape_calendar_events() -> list[dict[str, Any]]:
+    """Fetch and parse the public Legistar web calendar into API-shaped Event dicts."""
+    if httpx is None:
+        raise RuntimeError("httpx is not installed; install it with: pip install httpx")
+    with httpx.Client(timeout=_TIMEOUT, headers=_HEADERS) as client:
+        resp = client.get(_CALENDAR_URL, follow_redirects=True)
+        resp.raise_for_status()
+    return _parse_calendar_html(resp.text)
+
+
+def _event_in_window(event: dict[str, Any], start: datetime, end: datetime | None) -> bool:
+    """True if the event's date falls within ``[start, end]`` (open-ended when ``end`` is None)."""
+    d = _parse_event_date(event.get("EventDate"))
+    if d is None or d < start.date():
+        return False
+    return end is None or d <= end.date()
+
+
+def _fetch_events(start: datetime, end: datetime | None) -> list[dict[str, Any]]:
+    """Return raw Legistar Event dicts in [start, end], API-first, web-calendar fallback.
+
+    The REST API now rejects keyless callers (403). When it is unavailable we scrape the
+    public web calendar, which lists the same meetings in the same Event shape, then filter
+    client-side to the window. Fails soft: returns [] if both paths fail.
+    """
+    if end is None:
+        filter_expr = f"EventDate ge datetime'{start.strftime('%Y-%m-%dT00:00:00')}'"
+    else:
+        filter_expr = (
+            f"EventDate ge datetime'{start.strftime('%Y-%m-%dT00:00:00')}'"
+            f" and EventDate le datetime'{end.strftime('%Y-%m-%dT23:59:59')}'"
+        )
+    try:
+        return _get_all("/Events", **{"$filter": filter_expr, "$orderby": "EventDate"})
+    except Exception as exc:  # noqa: BLE001 — any API failure falls through to the web calendar
+        log.warning("Legistar REST API unavailable (%s); falling back to web calendar", exc)
+    try:
+        scraped = _scrape_calendar_events()
+    except Exception as exc:  # noqa: BLE001 — the fallback must never break the digest
+        log.error("Legistar web-calendar fallback failed: %s", exc)
+        return []
+    in_window = [e for e in scraped if _event_in_window(e, start, end)]
+    # The web calendar lists meetings newest-first; sort ascending so the scrape path matches
+    # the REST API's $orderby and honors discover_cd_hearings' "ordered by event_date" contract.
+    in_window.sort(key=lambda e: _parse_event_date(e.get("EventDate")) or date.max)
+    return in_window
 
 
 # ── Event -> CivicEvent mapping ───────────────────────────────────────────────
@@ -235,18 +359,18 @@ def discover_events(since: str | None = None) -> Iterator[CivicEvent]:
         ``status=ACCEPTED`` (structured, Rule 10), ``source_id=SOURCE_ID``
         (Rule 15). No LLM (Rule 1).
     """
-    if since and "T" not in since:
-        since = since + "T00:00:00"
-    cutoff = datetime.now(UTC).strftime("%Y-%m-%dT00:00:00") if since is None else since
+    if since is None:
+        start = datetime.now(UTC)
+    else:
+        iso = since if "T" in since else f"{since}T00:00:00"
+        try:
+            parsed = datetime.fromisoformat(iso.rstrip("Z"))
+            start = parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+        except ValueError:
+            log.warning("unparseable since=%r; defaulting to now (UTC)", since)
+            start = datetime.now(UTC)
 
-    filter_expr = f"EventDate ge datetime'{cutoff}'"
-    try:
-        events = _get_all("/Events", **{"$filter": filter_expr, "$orderby": "EventDate"})
-    except _HTTPError as exc:
-        log.error("Legistar Events fetch failed: %s", exc)
-        return
-
-    for raw in events:
+    for raw in _fetch_events(start, None):
         try:
             yield _event_to_civic(raw)
         except Exception as exc:  # noqa: BLE001
@@ -271,15 +395,7 @@ def discover_cd_hearings(cd: str, days_ahead: int = 30) -> list[CivicEvent]:
         ``event_date`` ascending.
     """
     now = datetime.now(UTC)
-    start = now.strftime("%Y-%m-%dT00:00:00")
-    end = (now + timedelta(days=days_ahead)).strftime("%Y-%m-%dT23:59:59")
-    filter_expr = f"EventDate ge datetime'{start}' and EventDate le datetime'{end}'"
-
-    try:
-        events = _get_all("/Events", **{"$filter": filter_expr, "$orderby": "EventDate"})
-    except _HTTPError as exc:
-        log.error("Legistar CD hearings fetch failed (cd=%s): %s", cd, exc)
-        return []
+    events = _fetch_events(now, now + timedelta(days=days_ahead))
 
     results: list[CivicEvent] = []
     for raw in events:

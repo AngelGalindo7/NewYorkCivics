@@ -8,18 +8,27 @@ No network calls; no DB.
 
 from __future__ import annotations
 
-from datetime import date, time
+from datetime import UTC, date, datetime, time
+from pathlib import Path
 
 import pytest
 
-from ingest.extract.schemas import RecordStatus
+import ingest.sources.nyc.legistar as legistar
+from ingest.extract.schemas import CivicEvent, RecordStatus
 from ingest.sources.nyc.legistar import (
     _HEADERS,
     SOURCE_ID,
+    _event_in_window,
     _event_to_civic,
+    _fetch_events,
+    _HTTPError,
+    _parse_calendar_html,
     _parse_event_date,
     _parse_event_time,
     _request_params,
+    _us_date_to_iso,
+    discover_cd_hearings,
+    discover_events,
 )
 
 # Representative Legistar Event rows (field names mirror the REST API shape).
@@ -226,12 +235,12 @@ def test_minimal_event():
     assert ev.status == RecordStatus.ACCEPTED
 
 
-# ── keyless requests: the public read API needs no token ──────────────────────
+# ── request param / header shaping (token optional; live API now 403s keyless) ────
 
 
 def test_request_params_omits_token_when_absent():
-    # The public API is keyless, so a missing token must NOT block the request — the
-    # connector simply sends the query without a token param.
+    # A missing token must not add a token param — the request shape is token-optional.
+    # (The live API now 403s keyless callers, which is what triggers the scrape fallback.)
     params = _request_params(None, **{"$filter": "EventDate ge x", "$orderby": "EventDate"})
     assert "token" not in params
     assert params["$filter"] == "EventDate ge x"
@@ -250,6 +259,306 @@ def test_request_params_empty_when_no_token_no_extra():
 
 
 def test_headers_carry_a_user_agent():
-    # A descriptive User-Agent avoids naive bot-blocking 403s on the public API.
+    # A descriptive User-Agent is sent on the API attempt and reused for the web-calendar fetch.
     assert _HEADERS.get("User-Agent")
     assert "nyc-civic-ingest" in _HEADERS["User-Agent"]
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Web-calendar fallback (REST API now 403s keyless callers)
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# Two import environments matter here:
+#   * CI installs ONLY pydantic — httpx and bs4 are ABSENT, so this module must
+#     import and collect cleanly. The pure-logic tests below run there too.
+#   * the local dev venv has httpx + bs4 — the bs4 parser tests RUN here and are
+#     SKIPPED in CI via ``pytest.importorskip("bs4")``. That is intentional.
+#
+# The API-403 simulation raises the module's bound ``_HTTPError`` so the module's
+# ``except _HTTPError`` always catches it in BOTH environments (in CI it is
+# ``Exception``; in dev it is ``httpx.HTTPError``).
+
+
+# ── fixtures / shaped rows ────────────────────────────────────────────────────
+
+
+# The 4 web-calendar rows in fixtures/legistar_calendar.html, reshaped to the
+# API Event dict keys ``_event_to_civic`` consumes. Only "City Council" (1418199)
+# and "Land Use" (1416853) survive the discover_cd_hearings keyword filter.
+CAL_EVENTS = [
+    {
+        "EventId": 1418199,
+        "EventBodyName": "City Council Stated Meeting",
+        "EventDate": "2026-12-17T00:00:00",
+        "EventTime": "1:30 PM",
+        "EventLocation": "Council Chambers - City Hall",
+        "EventAgendaStatusName": "",
+    },
+    {
+        "EventId": 1417104,
+        "EventBodyName": "Subcommittee on Zoning and Franchises",
+        "EventDate": "2026-08-12T00:00:00",
+        "EventTime": "11:00 AM",
+        "EventLocation": "250 Broadway - 8th Floor - Hearing Room 1",
+        "EventAgendaStatusName": "",
+    },
+    {
+        "EventId": 1416853,
+        "EventBodyName": "Committee on Land Use",
+        "EventDate": "2026-08-04T00:00:00",
+        "EventTime": "12:00 PM",
+        "EventLocation": "250 Broadway - 8th Floor - Hearing Room 1",
+        "EventAgendaStatusName": "",
+    },
+    {
+        "EventId": 1421743,
+        "EventBodyName": "Committee on Finance",
+        "EventDate": "2026-06-11T00:00:00",
+        "EventTime": "11:00 AM",
+        "EventLocation": "250 Broadway - 8th Floor - Hearing Room 2 VOTE*",
+        "EventAgendaStatusName": "",
+    },
+]
+
+
+@pytest.fixture
+def calendar_html():
+    """The trimmed real calendar capture (4 rows)."""
+    path = Path(__file__).parent / "fixtures" / "legistar_calendar.html"
+    return path.read_text(encoding="utf-8")
+
+
+def _boom(*args, **kwargs):
+    """A scrape stand-in that fails loudly if the API path was supposed to win."""
+    raise AssertionError("_scrape_calendar_events must not be called when the API succeeds")
+
+
+# ── _us_date_to_iso ───────────────────────────────────────────────────────────
+
+
+def test_us_date_to_iso_valid():
+    assert _us_date_to_iso("12/17/2026") == "2026-12-17T00:00:00"
+
+
+def test_us_date_to_iso_valid_other():
+    assert _us_date_to_iso("8/4/2026") == "2026-08-04T00:00:00"
+
+
+def test_us_date_to_iso_invalid():
+    assert _us_date_to_iso("not-a-date") is None
+
+
+def test_us_date_to_iso_empty():
+    assert _us_date_to_iso("") is None
+
+
+# ── _event_in_window ──────────────────────────────────────────────────────────
+
+
+def test_event_in_window_inside():
+    start = datetime(2026, 6, 1, tzinfo=UTC)
+    end = datetime(2026, 6, 30, tzinfo=UTC)
+    assert _event_in_window({"EventDate": "2026-06-15T00:00:00"}, start, end) is True
+
+
+def test_event_in_window_before_start():
+    start = datetime(2026, 6, 1, tzinfo=UTC)
+    end = datetime(2026, 6, 30, tzinfo=UTC)
+    assert _event_in_window({"EventDate": "2026-05-31T00:00:00"}, start, end) is False
+
+
+def test_event_in_window_after_end():
+    start = datetime(2026, 6, 1, tzinfo=UTC)
+    end = datetime(2026, 6, 30, tzinfo=UTC)
+    assert _event_in_window({"EventDate": "2026-07-01T00:00:00"}, start, end) is False
+
+
+def test_event_in_window_open_ended_end_none():
+    start = datetime(2026, 6, 1, tzinfo=UTC)
+    # end=None means open-ended — a far-future date still qualifies.
+    assert _event_in_window({"EventDate": "2030-01-01T00:00:00"}, start, None) is True
+
+
+def test_event_in_window_missing_date_is_false():
+    start = datetime(2026, 6, 1, tzinfo=UTC)
+    assert _event_in_window({}, start, None) is False
+
+
+def test_event_in_window_unparseable_date_is_false():
+    start = datetime(2026, 6, 1, tzinfo=UTC)
+    end = datetime(2026, 6, 30, tzinfo=UTC)
+    assert _event_in_window({"EventDate": "not-a-date"}, start, end) is False
+
+
+# ── _fetch_events: API-first, then web-calendar fallback ──────────────────────
+
+
+def test_fetch_events_api_first_success(monkeypatch):
+    # API succeeds -> its rows are returned verbatim and the scraper is NOT touched.
+    start = datetime(2026, 6, 1, tzinfo=UTC)
+    end = datetime(2026, 6, 30, tzinfo=UTC)
+    api_rows = [{"EventId": 1, "EventBodyName": "City Council", "EventDate": "2026-06-10T00:00:00"}]
+    monkeypatch.setattr(legistar, "_get_all", lambda *a, **k: api_rows)
+    monkeypatch.setattr(legistar, "_scrape_calendar_events", _boom)
+
+    result = _fetch_events(start, end)
+    assert result == api_rows
+
+
+def test_fetch_events_falls_back_to_scrape_on_403(monkeypatch):
+    # API 403s -> fall back to the web calendar, then keep only in-window events.
+    start = datetime(2026, 6, 1, tzinfo=UTC)
+    end = datetime(2026, 6, 30, tzinfo=UTC)
+
+    def _raise_403(*a, **k):
+        raise _HTTPError("simulated 403")
+
+    # One event inside the window, one outside — only the in-window one survives,
+    # exercising _fetch_events' _event_in_window post-filter on the scrape path.
+    scraped = [
+        {"EventId": 10, "EventBodyName": "City Council", "EventDate": "2026-06-15T00:00:00"},
+        {"EventId": 20, "EventBodyName": "City Council", "EventDate": "2026-07-15T00:00:00"},
+    ]
+    monkeypatch.setattr(legistar, "_get_all", _raise_403)
+    monkeypatch.setattr(legistar, "_scrape_calendar_events", lambda: scraped)
+
+    result = _fetch_events(start, end)
+    assert [e["EventId"] for e in result] == [10]
+
+
+def test_fetch_events_sorts_scrape_results_ascending(monkeypatch):
+    # The web calendar lists meetings newest-first; the scrape path must return them
+    # ascending by date so discover_cd_hearings' "ordered by event_date" contract holds.
+    start = datetime(2026, 6, 1, tzinfo=UTC)
+    end = datetime(2026, 12, 31, tzinfo=UTC)
+
+    def _raise_403(*a, **k):
+        raise _HTTPError("simulated 403")
+
+    descending = [
+        {"EventId": 3, "EventBodyName": "City Council", "EventDate": "2026-12-17T00:00:00"},
+        {"EventId": 2, "EventBodyName": "City Council", "EventDate": "2026-08-04T00:00:00"},
+        {"EventId": 1, "EventBodyName": "City Council", "EventDate": "2026-06-15T00:00:00"},
+    ]
+    monkeypatch.setattr(legistar, "_get_all", _raise_403)
+    monkeypatch.setattr(legistar, "_scrape_calendar_events", lambda: descending)
+
+    result = _fetch_events(start, end)
+    assert [e["EventId"] for e in result] == [1, 2, 3]
+
+
+def test_fetch_events_fail_soft_returns_empty(monkeypatch):
+    # Both paths fail -> return [] rather than raising (the fallback must never break the digest).
+    start = datetime(2026, 6, 1, tzinfo=UTC)
+    end = datetime(2026, 6, 30, tzinfo=UTC)
+
+    def _raise_403(*a, **k):
+        raise _HTTPError("simulated 403")
+
+    def _raise_runtime():
+        raise RuntimeError("calendar fetch exploded")
+
+    monkeypatch.setattr(legistar, "_get_all", _raise_403)
+    monkeypatch.setattr(legistar, "_scrape_calendar_events", _raise_runtime)
+
+    assert _fetch_events(start, end) == []
+
+
+# ── discover_cd_hearings: mapping + body keyword filter ───────────────────────
+
+
+def test_discover_cd_hearings_maps_and_filters(monkeypatch):
+    # Patch the narrow fetch seam so this test is free of window/timing dependence.
+    # Of the 4 calendar bodies, only "City Council" (1418199) and "Land Use" (1416853)
+    # match _CD_HEARING_KEYWORDS; Subcommittee on Zoning and Finance are dropped.
+    monkeypatch.setattr(legistar, "_fetch_events", lambda start, end: list(CAL_EVENTS))
+
+    results = discover_cd_hearings("MN11", days_ahead=400)
+    assert all(isinstance(ev, CivicEvent) for ev in results)
+    assert {ev.source_record_id for ev in results} == {"event:1418199", "event:1416853"}
+    assert all(ev.status == RecordStatus.ACCEPTED for ev in results)
+
+
+def test_discover_cd_hearings_fail_soft_empty(monkeypatch):
+    monkeypatch.setattr(legistar, "_fetch_events", lambda start, end: [])
+    assert discover_cd_hearings("MN11") == []
+
+
+# ── discover_events: streaming mapping ────────────────────────────────────────
+
+
+def test_discover_events_maps_each_row(monkeypatch):
+    rows = [
+        {"EventId": 1, "EventBodyName": "City Council", "EventDate": "2026-07-01T00:00:00"},
+        {"EventId": 2, "EventBodyName": "Committee on Land Use", "EventDate": "2026-07-02"},
+    ]
+    monkeypatch.setattr(legistar, "_fetch_events", lambda start, end: rows)
+
+    events = list(discover_events())
+    assert len(events) == 2
+    assert all(isinstance(ev, CivicEvent) for ev in events)
+    assert all(ev.status == RecordStatus.ACCEPTED for ev in events)
+    assert {ev.source_record_id for ev in events} == {"event:1", "event:2"}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# bs4 web-calendar PARSER (RUN in the full-dep venv; SKIP in pydantic-only CI)
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+def test_parse_calendar_html_returns_four_events(calendar_html):
+    pytest.importorskip("bs4")
+    events = _parse_calendar_html(calendar_html)
+    assert len(events) == 4
+    assert {e["EventId"] for e in events} == {1418199, 1417104, 1416853, 1421743}
+
+
+def test_parse_calendar_html_maps_row_fields(calendar_html):
+    pytest.importorskip("bs4")
+    events = _parse_calendar_html(calendar_html)
+    council = next(e for e in events if e["EventId"] == 1418199)
+    assert council["EventBodyName"] == "City Council Stated Meeting"
+    assert council["EventDate"] == "2026-12-17T00:00:00"
+    assert council["EventTime"] == "1:30 PM"
+
+
+def test_parse_calendar_html_end_to_end_to_civic(calendar_html):
+    pytest.importorskip("bs4")
+    events = _parse_calendar_html(calendar_html)
+    by_id = {e["EventId"]: _event_to_civic(e) for e in events}
+
+    council = by_id[1418199]
+    assert council.action_type == "council_hearing"
+    assert council.status == RecordStatus.ACCEPTED
+    assert "1418199" in council.citations[0].url
+
+    land_use = by_id[1416853]
+    assert land_use.action_type == "land_use_hearing"
+    assert land_use.status == RecordStatus.ACCEPTED
+    assert "1416853" in land_use.citations[0].url
+
+
+def test_parse_calendar_html_skips_row_without_id():
+    pytest.importorskip("bs4")
+    # Detail anchor is present (so the row is visited) but its href carries no ID=,
+    # so _parse_calendar_row returns None and the row is skipped.
+    html = (
+        "<table><tbody><tr class='rgRow'>"
+        "<td><a id='x_hypBody'>City Council</a></td>"
+        "<td class='rgSorted'>12/17/2026</td>"
+        "<td><a href='MeetingDetail.aspx?GUID=abc' id='x_hypMeetingDetail'>Meeting details</a></td>"
+        "</tr></tbody></table>"
+    )
+    assert _parse_calendar_html(html) == []
+
+
+def test_parse_calendar_html_skips_row_without_date():
+    pytest.importorskip("bs4")
+    # Anchor has an ID= but the row has no date cell -> useless forward-looking entry, skipped.
+    html = (
+        "<table><tbody><tr class='rgRow'>"
+        "<td><a id='x_hypBody'>City Council</a></td>"
+        "<td><a href='MeetingDetail.aspx?ID=999&GUID=abc' id='x_hypMeetingDetail'>details</a></td>"
+        "</tr></tbody></table>"
+    )
+    assert _parse_calendar_html(html) == []
