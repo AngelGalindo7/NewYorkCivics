@@ -69,7 +69,7 @@ except ImportError:
 try:
     from bs4 import BeautifulSoup
 except ImportError:
-    BeautifulSoup = None  # type: ignore[assignment,misc]
+    BeautifulSoup = None
 
 
 from ingest.config import get_settings
