@@ -27,6 +27,7 @@ from ingest.deliver.match import match_subscriber
 from ingest.deliver.send import send_digest
 from ingest.extract.schemas import CivicEvent
 from ingest.observability import get_logger
+from ingest.sources.nyc import cb_agenda
 from ingest.sources.nyc.building_grades import discover_energy_grades
 from ingest.sources.nyc.dob_hpd import (
     DOB_PERMITS_FEED,
@@ -69,6 +70,7 @@ def gather_live_events(
     legistar_days: int = 30,
     include_grades: bool = False,
     include_311: bool = False,
+    include_cb_agenda: bool = False,
 ) -> list[CivicEvent]:
     """Pull a bounded slice of recent East Harlem events from the live feeds.
 
@@ -94,6 +96,10 @@ def gather_live_events(
     severe 311 complaints (habitability/safety types only) to the surfaced buildings.
     Like the grades, it is bounded to the surfaced BBLs and is low-key context, never a
     headline -- and it is framed as resident reports, not confirmed violations.
+
+    ``include_cb_agenda`` (off by default) fetches CB11 board meeting agenda PDFs.
+    Disabled until the spot-check (§4.3) passes; the parse/extract leg is stubbed here —
+    only the discover → fetch chain is live.
     """
     events: list[CivicEvent] = []
     events += list(
@@ -127,6 +133,23 @@ def gather_live_events(
             events += _enrich_with_service_requests(events)
         except Exception as exc:  # network/API hiccup on a supplementary feed -> skip it
             log.warning("311 enrichment skipped (%s)", exc)
+    if include_cb_agenda:
+        try:
+            for ref in cb_agenda.discover_agendas("MN11"):
+                try:
+                    pdf_bytes = cb_agenda.fetch(ref.url)
+                except Exception as exc:
+                    log.warning("cb_agenda fetch failed for %s (%s)", ref.url, exc)
+                    continue
+                log.info(
+                    "cb_agenda: fetched %d bytes from %s (%s)",
+                    len(pdf_bytes),
+                    ref.url,
+                    ref.meeting_date or "date unknown",
+                )
+                # Parse + extract wired in the spot-check step (§4.3); fetch confirmed live here.
+        except Exception as exc:
+            log.warning("cb_agenda discovery skipped (%s)", exc)
     return events
 
 
