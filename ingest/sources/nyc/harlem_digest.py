@@ -29,7 +29,7 @@ from ingest.extract import extractor
 from ingest.extract.schemas import CivicEvent
 from ingest.observability import get_logger
 from ingest.parse import ParsedDoc, pdf_text
-from ingest.sources.nyc import cb_agenda, ulurp_packet
+from ingest.sources.nyc import cb_agenda, corroborate, ulurp_packet
 from ingest.sources.nyc.building_grades import discover_energy_grades
 from ingest.sources.nyc.dob_hpd import (
     DOB_PERMITS_FEED,
@@ -202,6 +202,8 @@ def gather_live_events(
                     )
         except Exception as exc:
             log.warning("ulurp_packet discovery skipped (%s)", exc)
+    zap_events = [e for e in events if e.source_id == "nyc_zap"]
+    events = corroborate.corroborate_against_zap(events, zap_events)
     return events
 
 
