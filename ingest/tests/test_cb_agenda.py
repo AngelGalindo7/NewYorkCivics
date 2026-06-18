@@ -30,11 +30,17 @@ def test_module_imports_clean():
     assert SOURCE_ID == "nyc_cb_mn11"
 
 
-def test_discover_agendas_returns_list(monkeypatch):
-    # Must return a list and never raise, even with no token set.
+def test_discover_agendas_offline_returns_fixture_count(monkeypatch):
+    # No token → fixture fallback; fixture has 3 records with agendas.
+    # Patch get_settings so load_dotenv() inside it can't restore the token
+    # from .env, and clear the env var so the or-fallback also returns empty.
+    import ingest.config as cfg
+    from ingest.config import Settings
+
+    monkeypatch.setattr(cfg, "get_settings", lambda: Settings())
     monkeypatch.delenv("AIRTABLE_TOKEN", raising=False)
     result = discover_agendas(None)
-    assert isinstance(result, list)
+    assert len(result) == 3
 
 
 def test_discover_agendas_unknown_board_returns_empty():

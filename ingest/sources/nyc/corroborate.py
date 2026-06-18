@@ -6,8 +6,10 @@ the authoritative structured version of the same project. This module upgrades a
 dirty event to ACCEPTED when ZAP confirms the key identifiers, or keeps it at
 REVIEW with a discrepancy note when they conflict.
 
-This is the reliability moat: a dirty event corroborated by the ZAP structured
-record is independently verifiable to the reader.
+Cross-source corroboration makes a dirty event independently verifiable: a
+ZAP structured record confirms the application exists and carries the same
+identifier, so the extracted claim can be checked against a public authoritative
+source.
 
 Boundary: pure function — no I/O, no network, no LLM. Safe to call unconditionally;
 a missing or empty ZAP feed means dirty events pass through unchanged.

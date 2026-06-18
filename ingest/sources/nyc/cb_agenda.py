@@ -53,7 +53,9 @@ class AgendaRef:
 
     Attributes:
         board: Community board id (e.g. ``"MN11"``). NYC-SPECIFIC.
-        url: Direct link to the agenda PDF (pre-signed Airtable CDN URL).
+        url: Pre-signed Airtable CDN link to the agenda PDF; typically expires
+            within ~1 hour of discovery. Callers must fetch in the same pipeline
+            run — do not cache or serialize refs for later use.
         meeting_date: ISO date of the meeting (``YYYY-MM-DD``), if available.
         title: Meeting name as it appears in the Airtable calendar.
         meeting_type: Committee or meeting type (e.g. ``"Full Board"``).
@@ -126,6 +128,8 @@ def _fetch_from_airtable(token: str) -> list[AgendaRef]:
         offset = data.get("offset")
         if not offset:
             break
+        # Pagination: offset-based; live path only — the fixture stays below the
+        # 100-record page limit so CI never exercises this branch.
         params = {"offset": offset}
 
     return refs
