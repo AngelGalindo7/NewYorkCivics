@@ -1,0 +1,82 @@
+{
+  "records": [
+    {
+      "id": "recFullBoardJune",
+      "createdTime": "2026-05-01T12:00:00.000Z",
+      "fields": {
+        "Name": "Full Board Meeting",
+        "Date": "2026-06-17",
+        "Type": "Full Board",
+        "Location": "PS 50, 433 East 100th Street",
+        "Register to Attend": "https://www.eventbrite.com/e/cb11-full-board-june-2026",
+        "Agenda": [
+          {
+            "id": "attAgendaJuneFB",
+            "url": "https://v5.airtableusercontent.com/v3/u/test/full-board-2026-06-17.pdf",
+            "filename": "full-board-2026-06-17.pdf",
+            "size": 204800,
+            "type": "application/pdf"
+          }
+        ]
+      }
+    },
+    {
+      "id": "recLandUseJune",
+      "createdTime": "2026-05-01T12:00:00.000Z",
+      "fields": {
+        "Name": "Land Use Committee",
+        "Date": "2026-06-10",
+        "Type": "Land Use",
+        "Location": "CB11 District Office, 55 East 115th Street",
+        "Register to Attend": "https://www.eventbrite.com/e/cb11-land-use-june-2026",
+        "Agenda": [
+          {
+            "id": "attAgendaJuneLU",
+            "url": "https://v5.airtableusercontent.com/v3/u/test/land-use-2026-06-10.pdf",
+            "filename": "land-use-2026-06-10.pdf",
+            "size": 98304,
+            "type": "application/pdf"
+          }
+        ],
+        "Minutes": [
+          {
+            "id": "attMinutesJuneLU",
+            "url": "https://v5.airtableusercontent.com/v3/u/test/land-use-2026-06-10-minutes.pdf",
+            "filename": "land-use-2026-06-10-minutes.pdf",
+            "size": 65536,
+            "type": "application/pdf"
+          }
+        ]
+      }
+    },
+    {
+      "id": "recHealthJune",
+      "createdTime": "2026-05-01T12:00:00.000Z",
+      "fields": {
+        "Name": "Health & Human Services Committee",
+        "Date": "2026-06-03",
+        "Type": "Health & Human Services",
+        "Location": "CB11 District Office, 55 East 115th Street",
+        "Agenda": [
+          {
+            "id": "attAgendaJuneHHS",
+            "url": "https://v5.airtableusercontent.com/v3/u/test/hhs-2026-06-03.pdf",
+            "filename": "hhs-2026-06-03.pdf",
+            "size": 73728,
+            "type": "application/pdf"
+          }
+        ]
+      }
+    },
+    {
+      "id": "recNoAgendaYet",
+      "createdTime": "2026-05-01T12:00:00.000Z",
+      "fields": {
+        "Name": "Parks & Recreation Committee",
+        "Date": "2026-07-08",
+        "Type": "Parks & Recreation",
+        "Location": "CB11 District Office, 55 East 115th Street"
+      }
+    }
+  ]
+}
