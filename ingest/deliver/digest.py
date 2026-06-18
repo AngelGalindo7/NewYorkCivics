@@ -292,7 +292,7 @@ def _stats_line(all_items: list[dict[str, Any]], lead: list[dict[str, Any]]) -> 
         clauses.append(f"{speakable} {noun}")
     if not clauses:
         return None
-    return "This week near your address: " + " · ".join(clauses) + "."
+    return "This week within a 5-minute walk: " + " · ".join(clauses) + "."
 
 
 def build_digest(

@@ -145,6 +145,12 @@ _JOB_TYPE_LABEL = {
     "NB": "new building",
     "DM": "demolition",
 }
+# Plain-English severity labels for HPD violation classes (per HPD's own definitions).
+_HPD_CLASS_LABEL: dict[str, str] = {
+    "C": "immediately hazardous",
+    "B": "hazardous",
+    "A": "non-hazardous",
+}
 _BORO_NAME_TO_DIGIT = {
     "MANHATTAN": "1",
     "BRONX": "2",
@@ -227,19 +233,14 @@ def _hpd_violation_to_event(rec: Mapping[str, Any]) -> CivicEvent:
     vclass = rec.get("class")
     addr = _address(rec.get("housenumber"), rec.get("streetname"))
     violation_id = str(rec["violationid"])
-    severity = (
-        "immediately hazardous"
-        if vclass == "C"
-        else "hazardous"
-        if vclass == "B"
-        else "non-hazardous"
-    )
+    severity = _HPD_CLASS_LABEL.get(vclass or "", "non-hazardous")
+    hpd_label = _HPD_CLASS_LABEL.get(vclass, "housing").capitalize() if vclass else None
     return CivicEvent(
         source_id=SOURCE_ID_HPD,
         source_record_id=violation_id,
         bbl=bbl(rec.get("boroid"), rec.get("block"), rec.get("lot")),
         action_type="violation",
-        title=f"HPD Class {vclass} violation" if vclass else "HPD violation",
+        title=(f"{hpd_label} violation (Class {vclass}) — HPD" if vclass else "HPD violation"),
         summary=(
             f"HPD cited {addr or 'this building'} for a Class {vclass} "
             f"({severity}) housing-maintenance violation."
@@ -312,7 +313,7 @@ def _dob_permit_to_event(rec: Mapping[str, Any]) -> CivicEvent:
         # Prefer the row's own canonical BBL over re-deriving from block/lot (condo lots).
         bbl=_record_bbl(rec.get("bbl")) or bbl(boro_digit, rec.get("block"), rec.get("lot")),
         action_type="permit",
-        title=f"DOB {job_type} permit ({label})" if job_type else "DOB permit",
+        title=f"{label.capitalize()} permit (DOB {job_type})" if job_type else "DOB permit",
         summary=(
             f"DOB issued a {label} permit at {addr or 'this building'}"
             + (
