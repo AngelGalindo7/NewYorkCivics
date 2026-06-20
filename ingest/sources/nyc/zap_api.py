@@ -164,10 +164,10 @@ def _address(*parts: str | None) -> str | None:
 
 
 def _first_ulurp(raw: str | None) -> str | None:
-    """First ULURP number from a comma- or pipe-separated string."""
+    """First ULURP number from a comma-, pipe-, or semicolon-separated string."""
     if not raw:
         return None
-    first = raw.replace("|", ",").split(",")[0].strip()
+    first = raw.replace("|", ",").replace(";", ",").split(",")[0].strip()
     return first or None
 
 

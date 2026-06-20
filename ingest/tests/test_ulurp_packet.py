@@ -120,3 +120,32 @@ def test_discover_packets_iter_failure_returns_empty(monkeypatch) -> None:
 
     result = discover_packets()
     assert result == []
+
+
+# --------------------------------------------------------------------------- #
+# Compound ULURP strings — _first_ulurp handles semicolons at the ZAP boundary#
+# --------------------------------------------------------------------------- #
+
+
+def test_first_ulurp_semicolon_separated() -> None:
+    """_first_ulurp extracts the first candidate from a semicolon-separated compound string.
+
+    The fix belongs in zap_api._first_ulurp (where CivicEvents are built), not
+    in discover_packets. By the time events reach discover_packets their
+    ulurp_number field is already a single clean value.
+    """
+    from ingest.sources.nyc.zap_api import _first_ulurp
+
+    assert _first_ulurp("C 240042 ZMM; N 230117 ZRM") == "C 240042 ZMM"
+    assert _first_ulurp("230285PQM; 230286PPM") == "230285PQM"
+    assert _first_ulurp("C 240042 ZMM") == "C 240042 ZMM"  # single — unchanged
+    assert _first_ulurp(None) is None
+    assert _first_ulurp("") is None
+
+
+def test_build_packet_url_uses_first_ulurp_after_split() -> None:
+    """The URL built from the first split candidate contains the normalized number."""
+    url = _build_packet_url("C 240042 ZMM")
+    assert url is not None
+    assert "C240042ZMM" in url
+    assert url.startswith("https://a836-zap.nyc.gov/document/ulurp/")
