@@ -440,6 +440,32 @@ def test_happened_this_week_section():
     assert "Happened this week" in body
 
 
+def test_corroboration_note_when_permit_and_violation():
+    from ingest.deliver.digest import _corroboration_note
+
+    permit_item = {"action_type": "permit"}
+    violation_item = {"action_type": "violation"}
+    complaint_item = {"action_type": "habitability_complaints"}
+
+    # Permit + violation -> note mentions both "permit" and "violation".
+    note = _corroboration_note([permit_item, violation_item])
+    assert note is not None
+    assert "permit" in note
+    assert "violation" in note
+
+    # Permit + complaint -> note mentions "permit" and "complaint".
+    note2 = _corroboration_note([permit_item, complaint_item])
+    assert note2 is not None
+    assert "permit" in note2
+    assert "complaint" in note2
+
+    # Permit only -> None.
+    assert _corroboration_note([permit_item]) is None
+
+    # Violation only (no permit) -> None.
+    assert _corroboration_note([violation_item]) is None
+
+
 def test_address_populated_from_extras_primary_address():
     # When the top-level address field is absent, the item's address must be filled from
     # extras["primary_address"] so building thread labels show a street address, not a raw BBL.

@@ -461,6 +461,33 @@ def build_digest(
     }
 
 
+def _corroboration_note(items: list[dict[str, Any]]) -> str | None:
+    """A one-line cross-source alert when a building has both a new permit and open violations.
+
+    Lets a reader see the reliability signal at a glance: a permit filed on a building that
+    already has active violations or resident complaints is a stronger story than either alone.
+    Returns None when the building does not have both a permit and a violation/complaint.
+    """
+    has_permit = any(it["action_type"] == "permit" for it in items)
+    if not has_permit:
+        return None
+    violation_count = sum(1 for it in items if it["action_type"] == "violation")
+    complaint_count = sum(1 for it in items if it["action_type"] == "habitability_complaints")
+    if violation_count == 0 and complaint_count == 0:
+        return None
+    n = violation_count + complaint_count
+    if violation_count > 0 and complaint_count == 0:
+        kind = f"{n} active violation{'s' if n != 1 else ''}"
+    elif complaint_count > 0 and violation_count == 0:
+        kind = f"{n} active complaint{'s' if n != 1 else ''}"
+    else:
+        kind = (
+            f"{violation_count} active violation{'s' if violation_count != 1 else ''}"
+            f" and {complaint_count} complaint{'s' if complaint_count != 1 else ''}"
+        )
+    return f"This building received a new permit and has {kind}."
+
+
 def _render_item(item: dict[str, Any], out: list[str]) -> None:
     tag = " **[needs verification]**" if item["needs_verification"] else ""
     out.append(f"**{item['title']}**{tag}")
@@ -542,6 +569,10 @@ def render_markdown(digest: dict[str, Any]) -> str:
             if len(items) > 1:
                 out.append(f"_{len(items)} updates on this building_")
             out.append("")
+            note = _corroboration_note(items)
+            if note:
+                out.append(note)
+                out.append("")
             for item in visible:
                 _render_item(item, out)
 
