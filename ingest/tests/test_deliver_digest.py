@@ -440,6 +440,46 @@ def test_happened_this_week_section():
     assert "Happened this week" in body
 
 
+def test_glossary_expands_on_first_use_only():
+    # Acronyms defined in the glossary must be expanded inline on their FIRST appearance
+    # in the rendered body; subsequent uses of the same acronym must remain unexpanded.
+    from ingest.extract.schemas import Citation, CivicEvent, RecordStatus
+
+    ev = CivicEvent(
+        source_id="test_src",
+        source_record_id="GLOSSARY-1",
+        bbl=str(SAMPLE_SUBSCRIBER["bbl"]),
+        action_type="land_use_hearing",
+        title="ULURP hearing: ULURP application review",
+        summary="Community board review under ULURP procedures.",
+        address=str(SAMPLE_SUBSCRIBER["address"]),
+        event_date=ASOF + timedelta(days=7),
+        confidence=1.0,
+        status=RecordStatus.ACCEPTED,
+        citations=[
+            Citation(
+                kind="data_source",
+                verifies="exact_record",
+                label="ULURP record",
+                url="https://example.com/ulurp/GLOSSARY-1",
+            )
+        ],
+    )
+    glossary = {"ULURP": "Uniform Land Use Review Procedure — the city's land-use approval process"}
+    matched = match_subscriber(SAMPLE_SUBSCRIBER, [ev])
+    digest = build_digest(SAMPLE_SUBSCRIBER, matched, asof=ASOF)
+    body = render_markdown(digest, glossary=glossary)
+
+    # Exactly one expansion should appear; subsequent occurrences stay as bare "ULURP".
+    expansion = "ULURP (Uniform Land Use Review Procedure — the city's land-use approval process)"
+    assert expansion in body
+    assert body.count(expansion) == 1
+
+    # Without glossary, no expansion.
+    body_no_gloss = render_markdown(digest)
+    assert "(Uniform Land Use Review Procedure" not in body_no_gloss
+
+
 def test_corroboration_note_when_permit_and_violation():
     from ingest.deliver.digest import _corroboration_note
 

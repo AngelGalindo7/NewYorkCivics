@@ -45,6 +45,19 @@ from ingest.sources.nyc.zap_api import _zap_project_to_event, iter_zap_events
 
 log = get_logger(__name__)
 
+# NYC-specific acronym glossary — passed to render_markdown so each term is defined
+# inline on its first appearance in the email body; subsequent uses stay as-is.
+NYC_ACRONYMS: dict[str, str] = {
+    "J-51": "a property tax break that preserves affordable rents",
+    "MIH": "Mandatory Inclusionary Housing — a zoning rule requiring affordable units",
+    "PACT": "Permanent Affordability Commitment Together — a HUD program converting public housing",
+    "ULURP": "Uniform Land Use Review Procedure — the city's land-use approval process",
+    "CEQR": "City Environmental Quality Review",
+    "421-a": "a tax exemption tied to affordable unit requirements",
+    "485-x": "a post-2022 affordable housing tax deal",
+    "SLA": "State Liquor Authority",
+}
+
 # A sample confirmed subscriber in East Harlem (the only v1 user state — Rule 16).
 # In production this row comes from subscribers.py (signup -> GeoSupport geocode).
 SAMPLE_SUBSCRIBER = {
@@ -431,7 +444,16 @@ def run() -> None:
     path = send_digest(digest, SAMPLE_SUBSCRIBER)
     print(f"\nDigest written to: {path}\n")
     print("----- rendered body -----")
-    print(render_markdown(digest))
+    print(
+        render_markdown(
+            digest,
+            glossary=NYC_ACRONYMS,
+            hearing_guidance=(
+                "CB11 must hold a public hearing on this application."
+                " To comment, call CB11 at 212-831-8929."
+            ),
+        )
+    )
 
 
 if __name__ == "__main__":

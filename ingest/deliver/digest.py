@@ -29,6 +29,8 @@ from Extract / the structured connectors (cached), never regenerated here.
 
 from __future__ import annotations
 
+import re
+from collections.abc import Callable
 from datetime import date, timedelta
 from typing import TYPE_CHECKING, Any
 
@@ -488,11 +490,18 @@ def _corroboration_note(items: list[dict[str, Any]]) -> str | None:
     return f"This building received a new permit and has {kind}."
 
 
-def _render_item(item: dict[str, Any], out: list[str]) -> None:
+def _render_item(
+    item: dict[str, Any],
+    out: list[str],
+    *,
+    expand: Callable[[str], str] | None = None,
+    hearing_guidance: str | None = None,
+) -> None:
+    _e = expand or (lambda t: t)
     tag = " **[needs verification]**" if item["needs_verification"] else ""
-    out.append(f"**{item['title']}**{tag}")
+    out.append(f"**{_e(item['title'])}**{tag}")
     if item["summary"]:
-        out.append(item["summary"])
+        out.append(_e(item["summary"]))
     if item["deadline_note"]:
         out.append(f"- **Action deadline:** {item['deadline_note']}")
     # Sources, strongest proof first, on one line so it reads like a citation.
@@ -500,23 +509,77 @@ def _render_item(item: dict[str, Any], out: list[str]) -> None:
         links = " · ".join(f"[{c['label']}]({c['url']})" for c in item["citations"])
         prefix = "Verify" if not item["needs_verification"] else "Check the sources"
         out.append(f"- {prefix}: {links}")
+    if (
+        hearing_guidance
+        and "hearing" in (item.get("action_type") or "")
+        and re.search(
+            r"liquor|sla",
+            (item.get("title") or "") + " " + (item.get("summary") or ""),
+            re.IGNORECASE,
+        )
+    ):
+        out.append(hearing_guidance)
     out.append("")
 
 
-def _render_lead_item(item: dict[str, Any], asof: date, out: list[str]) -> None:
+def _render_lead_item(
+    item: dict[str, Any],
+    asof: date,
+    out: list[str],
+    *,
+    expand: Callable[[str], str] | None = None,
+    hearing_guidance: str | None = None,
+) -> None:
     """One compact entry in the 'Act on this' lead: title, when, and the verify line."""
-    out.append(f"**{item['title']}**")
+    _e = expand or (lambda t: t)
+    out.append(f"**{_e(item['title'])}**")
     when = item["actionable_date"]
     if when is not None:
         out.append(f"- **When:** {_when_phrase(when, asof)} ({when.isoformat()})")
     if item["citations"]:
         links = " · ".join(f"[{c['label']}]({c['url']})" for c in item["citations"])
         out.append(f"- Verify: {links}")
+    if (
+        hearing_guidance
+        and "hearing" in (item.get("action_type") or "")
+        and re.search(
+            r"liquor|sla",
+            (item.get("title") or "") + " " + (item.get("summary") or ""),
+            re.IGNORECASE,
+        )
+    ):
+        out.append(hearing_guidance)
     out.append("")
 
 
-def render_markdown(digest: dict[str, Any]) -> str:
+def render_markdown(
+    digest: dict[str, Any],
+    *,
+    glossary: dict[str, str] | None = None,
+    hearing_guidance: str | None = None,
+) -> str:
     """Render the digest into the plain-English, verifiable email body (Markdown)."""
+    # Acronym expansion: track which keys have already been expanded (first-use only)
+    # so the same acronym is defined on first appearance, never repeated.
+    _expanded: set[str] = set()
+
+    def _expand(text: str) -> str:
+        if not glossary:
+            return text
+        result = text
+        for key, expansion in glossary.items():
+            if key in _expanded:
+                continue
+            if re.search(r"\b" + re.escape(key) + r"\b", result):
+                result = re.sub(
+                    r"\b" + re.escape(key) + r"\b",
+                    f"{key} ({expansion})",
+                    result,
+                    count=1,
+                )
+                _expanded.add(key)
+        return result
+
     out: list[str] = []
     out.append(f"# {digest['subject']}")
     # Personalization framing: scoped to the address the subscriber gave us.
@@ -540,7 +603,7 @@ def render_markdown(digest: dict[str, Any]) -> str:
         out.append("## Act on this")
         out.append("")
         for item in lead:
-            _render_lead_item(item, asof, out)
+            _render_lead_item(item, asof, out, expand=_expand, hearing_guidance=hearing_guidance)
 
     # "Deadline passed": recently lapsed items — listed so the reader knows what
     # closed, without implying an open action window.
@@ -552,7 +615,7 @@ def render_markdown(digest: dict[str, Any]) -> str:
         )
         out.append("")
         for item in overdue:
-            _render_item(item, out)
+            _render_item(item, out, expand=_expand)
 
     # "Near you": the proximity-banded, building-threaded feed. Items already shown
     # in the "Act on this" lead are skipped here to avoid showing the same event twice.
@@ -574,7 +637,7 @@ def render_markdown(digest: dict[str, Any]) -> str:
                 out.append(note)
                 out.append("")
             for item in visible:
-                _render_item(item, out)
+                _render_item(item, out, expand=_expand, hearing_guidance=hearing_guidance)
 
     # "Later": items with a still-open action window more than LEAD_MAX_DAYS out —
     # they matter but aren't urgent enough to headline this week's digest.
@@ -584,7 +647,7 @@ def render_markdown(digest: dict[str, Any]) -> str:
         out.append(f"_These items have open action windows more than {LEAD_MAX_DAYS} days out._")
         out.append("")
         for item in later:
-            _render_lead_item(item, asof, out)
+            _render_lead_item(item, asof, out, expand=_expand, hearing_guidance=hearing_guidance)
 
     # "Happened this week": events that occurred in the past 7 days with no open
     # action window — context only, not an invitation to act.
@@ -597,7 +660,7 @@ def render_markdown(digest: dict[str, Any]) -> str:
         )
         out.append("")
         for item in recent:
-            _render_item(item, out)
+            _render_item(item, out, expand=_expand, hearing_guidance=hearing_guidance)
 
     if digest["footnotes"]:
         out.append("---")
