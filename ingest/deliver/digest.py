@@ -60,6 +60,11 @@ _BAND_LABELS = (
     (BAND_IN_YOUR_AREA, "In your area"),
 )
 
+# Permit types that represent outdoor or temporary street-level work (sidewalk sheds,
+# cranes, equipment placements). These affect the streetscape, not the building itself,
+# so they are informational context rather than action items for a resident.
+_STREET_EVENT_PERMIT_TYPES = frozenset({"EW"})
+
 # Public-review action types — formal land-use proposals that open a public-comment
 # window a resident can weigh in on (alongside the hearing family matched below).
 # These are canonical taxonomy values, not source- or city-specific strings.
@@ -235,6 +240,15 @@ def _is_actionable(item: dict[str, Any]) -> bool:
     return item["actionable_date"] is not None and not item["needs_verification"]
 
 
+def _is_street_event(item: dict[str, Any]) -> bool:
+    """True when the permit is for outdoor/temporary street-level work (EW permit type).
+
+    Street-level equipment work affects the sidewalk, not the building — it is
+    informational context for a reader, not an action item that warrants leading the digest.
+    """
+    return item.get("extras", {}).get("permit_type") in _STREET_EVENT_PERMIT_TYPES
+
+
 def _actionability_key(item: dict[str, Any]) -> tuple:
     """Sort key: soonest/overdue deadlines first, then highest rank score."""
     has_deadline = item["deadline"] is not None
@@ -365,7 +379,10 @@ def build_digest(
     # Items with open windows more than LEAD_MAX_DAYS out move to "Later" so the urgent
     # lead stays focused on what a reader should act on this week or month.
     lead_cutoff = asof + timedelta(days=LEAD_MAX_DAYS)
-    actionable = sorted((it for it in all_items if _is_actionable(it)), key=_lead_key)
+    actionable = sorted(
+        (it for it in all_items if _is_actionable(it) and not _is_street_event(it)),
+        key=_lead_key,
+    )
     lead_items = [it for it in actionable if it["actionable_date"] <= lead_cutoff]
     later_items = [it for it in actionable if it["actionable_date"] > lead_cutoff]
 

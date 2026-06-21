@@ -440,6 +440,49 @@ def test_happened_this_week_section():
     assert "Happened this week" in body
 
 
+def test_street_event_permit_stays_out_of_lead():
+    # An EW (Equipment Work) permit is outdoor/temporary street-level work — it belongs
+    # in the building thread as context but must never lead the digest as an action item.
+    from ingest.extract.schemas import Citation, CivicEvent, RecordStatus
+
+    street = CivicEvent(
+        source_id="test_src",
+        source_record_id="STREET-1",
+        bbl=str(SAMPLE_SUBSCRIBER["bbl"]),
+        action_type="permit",
+        title="Sidewalk shed permit",
+        summary="Equipment Work permit for sidewalk shed installation.",
+        address=str(SAMPLE_SUBSCRIBER["address"]),
+        event_date=ASOF + timedelta(days=5),
+        deadline=ASOF + timedelta(days=30),
+        confidence=1.0,
+        status=RecordStatus.ACCEPTED,
+        extras={"permit_type": "EW"},
+        citations=[
+            Citation(
+                kind="data_source",
+                verifies="exact_record",
+                label="DOB permit",
+                url="https://example.com/permit/STREET-1",
+            )
+        ],
+    )
+    matched = match_subscriber(SAMPLE_SUBSCRIBER, [street])
+    digest = build_digest(SAMPLE_SUBSCRIBER, matched, asof=ASOF)
+
+    lead_titles = [it["title"] for it in digest["lead_items"]]
+    assert "Sidewalk shed permit" not in lead_titles
+
+    # Must still appear in sections (building threads).
+    all_section_titles = [
+        it["title"]
+        for section in digest["sections"]
+        for building in section["buildings"]
+        for it in building["items"]
+    ]
+    assert "Sidewalk shed permit" in all_section_titles
+
+
 def test_lead_item_not_duplicated_in_near_you():
     # An item that appears in "Act on this" must not also render in "Near you" — seeing
     # the same building update twice in one email is confusing and wastes the reader's attention.
