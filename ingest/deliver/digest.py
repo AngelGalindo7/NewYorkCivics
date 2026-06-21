@@ -425,6 +425,7 @@ def build_digest(
         "asof": asof.isoformat(),
         "stats_line": stats_line,
         "lead_items": lead_items,
+        "lead_ids": [it["source_record_id"] for it in lead_items],
         "later_items": later_items,
         "overdue_items": overdue_items,
         "recent_items": recent_items,
@@ -505,7 +506,9 @@ def render_markdown(digest: dict[str, Any]) -> str:
         for item in overdue:
             _render_item(item, out)
 
-    # "Near you": the proximity-banded, building-threaded feed.
+    # "Near you": the proximity-banded, building-threaded feed. Items already shown
+    # in the "Act on this" lead are skipped here to avoid showing the same event twice.
+    lead_ids = set(digest.get("lead_ids") or [])
     out.append("## Near you")
     out.append("")
     for section in digest["sections"]:
@@ -513,11 +516,12 @@ def render_markdown(digest: dict[str, Any]) -> str:
         out.append("")
         for building in section["buildings"]:
             items = building["items"]
+            visible = [it for it in items if it.get("source_record_id") not in lead_ids]
             out.append(f"#### {building['label']}")
             if len(items) > 1:
                 out.append(f"_{len(items)} updates on this building_")
             out.append("")
-            for item in items:
+            for item in visible:
                 _render_item(item, out)
 
     # "Later": items with a still-open action window more than LEAD_MAX_DAYS out —

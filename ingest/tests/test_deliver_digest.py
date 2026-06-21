@@ -440,6 +440,26 @@ def test_happened_this_week_section():
     assert "Happened this week" in body
 
 
+def test_lead_item_not_duplicated_in_near_you():
+    # An item that appears in "Act on this" must not also render in "Near you" — seeing
+    # the same building update twice in one email is confusing and wastes the reader's attention.
+    upcoming = _accepted_event(
+        "DEDUP-1",
+        "Permit with upcoming expiry",
+        event_date=ASOF + timedelta(days=10),
+        deadline=ASOF + timedelta(days=10),
+    )
+    matched = match_subscriber(SAMPLE_SUBSCRIBER, [upcoming])
+    digest = build_digest(SAMPLE_SUBSCRIBER, matched, asof=ASOF)
+    assert any(it["title"] == "Permit with upcoming expiry" for it in digest["lead_items"])
+
+    body = render_markdown(digest)
+    # The title should appear exactly once: in "Act on this", not again under "Near you".
+    assert body.count("Permit with upcoming expiry") == 1
+    act_section = body.split("## Act on this")[1].split("## Near you")[0]
+    assert "Permit with upcoming expiry" in act_section
+
+
 def test_far_future_item_goes_to_later_not_lead():
     # An item with an open action window more than 60 days out must move to "Later"
     # rather than cluttering the urgent "Act on this" lead.
