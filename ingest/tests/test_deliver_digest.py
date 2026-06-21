@@ -75,7 +75,7 @@ def test_events_on_one_building_are_threaded_into_one_group():
     # dates in the past, no deadline) are filtered out by the pure-past-event filter,
     # so the surviving on-block events are the HPD violation and the displacement signal,
     # both on BBL 1016500030 -> they still form one group.
-    from ingest.deliver.digest import _group_buildings, _to_item, build_digest
+    from ingest.deliver.digest import _to_item, build_digest
     from ingest.deliver.match import match_subscriber as ms
 
     matched = ms(SAMPLE_SUBSCRIBER, _sample_events())
