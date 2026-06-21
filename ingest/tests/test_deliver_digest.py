@@ -355,3 +355,61 @@ def test_lead_is_sorted_soonest_first():
     assert lead_titles == ["Sooner hearing", "Later hearing"]
     dates = [it["actionable_date"] for it in digest["lead_items"]]
     assert dates == sorted(dates) and dates[0] != dates[-1]  # genuinely ascending, not equal
+
+
+def _accepted_event(record_id: str, title: str, *, event_date: date, deadline: date | None = None):
+    from ingest.extract.schemas import Citation, CivicEvent, RecordStatus
+
+    return CivicEvent(
+        source_id="test_src",
+        source_record_id=record_id,
+        bbl=str(SAMPLE_SUBSCRIBER["bbl"]),
+        action_type="permit",
+        title=title,
+        summary="A civic event for testing.",
+        address=str(SAMPLE_SUBSCRIBER["address"]),
+        event_date=event_date,
+        deadline=deadline,
+        confidence=1.0,
+        status=RecordStatus.ACCEPTED,
+        citations=[
+            Citation(
+                kind="data_source",
+                verifies="exact_record",
+                label="source row",
+                url=f"https://example.com/row/{record_id}",
+            )
+        ],
+    )
+
+
+def test_deadline_passed_section_appears_and_lead_excludes_overdue():
+    # An ACCEPTED event with a recently lapsed deadline must NOT appear in "Act on this"
+    # (actionable_date is None for lapsed deadlines) but MUST appear in "Deadline passed".
+    overdue = _accepted_event(
+        "OVERDUE-1",
+        "Recently expired permit application",
+        event_date=ASOF - timedelta(days=10),
+        deadline=ASOF - timedelta(days=5),
+    )
+    # A very old lapsed deadline (beyond 90-day lookback) must NOT appear in the section.
+    ancient = _accepted_event(
+        "ANCIENT-1",
+        "Old expired application",
+        event_date=ASOF - timedelta(days=92),
+        deadline=ASOF - timedelta(days=91),
+    )
+    matched = match_subscriber(SAMPLE_SUBSCRIBER, [overdue, ancient])
+    digest = build_digest(SAMPLE_SUBSCRIBER, matched, asof=ASOF)
+
+    lead_titles = [it["title"] for it in digest["lead_items"]]
+    assert "Recently expired permit application" not in lead_titles
+
+    overdue_titles = [it["title"] for it in digest["overdue_items"]]
+    assert "Recently expired permit application" in overdue_titles
+    assert "Old expired application" not in overdue_titles
+
+    body = render_markdown(digest)
+    assert "## Deadline passed" in body
+    assert "Recently expired permit application" in body.split("## Deadline passed")[1]
+    assert "Act on this" not in body  # no open action windows -> no lead section

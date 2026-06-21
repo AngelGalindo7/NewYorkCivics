@@ -29,7 +29,7 @@ from Extract / the structured connectors (cached), never regenerated here.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from typing import TYPE_CHECKING, Any
 
 from ingest.deliver import rank
@@ -45,6 +45,13 @@ if TYPE_CHECKING:
 
 # Soonest-deadline window (days) that counts as "needs your attention".
 ATTENTION_DEADLINE_DAYS = 14
+
+# Maximum days ahead for the "Act on this" lead; items with open windows beyond
+# this threshold move to a "Later" subsection instead of cluttering the urgent lead.
+LEAD_MAX_DAYS = 60
+
+# How far back a lapsed deadline can be and still appear in "Deadline passed".
+_OVERDUE_LOOKBACK_DAYS = 90
 
 # Reader-facing labels + display order for the three proximity bands.
 _BAND_LABELS = (
@@ -213,6 +220,8 @@ def _to_item(event: CivicEvent, band: str, asof: date) -> dict[str, Any]:
         "citations": [
             {"kind": c.kind, "verifies": c.verifies, "label": c.label, "url": c.url} for c in cites
         ],
+        "source_record_id": event.source_record_id,
+        "extras": dict(event.extras),
     }
 
 
@@ -329,6 +338,19 @@ def build_digest(
     # same item may also appear in its building thread below for context — the digest
     # orders for actionability first. Needs-verification items are excluded from the lead.
     lead_items = sorted((it for it in all_items if _is_actionable(it)), key=_lead_key)
+
+    # "Deadline passed": lapsed deadlines from the past 90 days — listed so the reader
+    # knows what recently closed, without implying there is still an open action window.
+    overdue_cutoff = asof - timedelta(days=_OVERDUE_LOOKBACK_DAYS)
+    overdue_items = [
+        it
+        for it in all_items
+        if it["deadline"] is not None
+        and it["deadline"] < asof
+        and it["event_date"] is not None
+        and it["event_date"] >= overdue_cutoff
+    ]
+
     stats_line = _stats_line(all_items, lead_items)
 
     def _needs_attention(item: dict[str, Any]) -> bool:
@@ -373,6 +395,7 @@ def build_digest(
         "asof": asof.isoformat(),
         "stats_line": stats_line,
         "lead_items": lead_items,
+        "overdue_items": overdue_items,
         "sections": sections,
         "item_count": n,
         "building_count": building_count,
@@ -437,6 +460,18 @@ def render_markdown(digest: dict[str, Any]) -> str:
         out.append("")
         for item in lead:
             _render_lead_item(item, asof, out)
+
+    # "Deadline passed": recently lapsed items — listed so the reader knows what
+    # closed, without implying an open action window.
+    overdue = digest.get("overdue_items") or []
+    if overdue:
+        out.append("## Deadline passed")
+        out.append(
+            "_The comment window for these items closed recently — they are listed so you know._"
+        )
+        out.append("")
+        for item in overdue:
+            _render_item(item, out)
 
     # "Near you": the proximity-banded, building-threaded feed.
     out.append("## Near you")
