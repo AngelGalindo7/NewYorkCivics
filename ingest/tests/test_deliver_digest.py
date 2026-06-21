@@ -440,6 +440,50 @@ def test_happened_this_week_section():
     assert "Happened this week" in body
 
 
+def test_hearing_guidance_appended_for_liquor_item():
+    # hearing_guidance must appear after a liquor-license hearing item; it must NOT
+    # appear for a non-liquor hearing (we don't want unrelated CB guidance polluting
+    # items that aren't about liquor licenses).
+    from ingest.extract.schemas import Citation, CivicEvent, RecordStatus
+
+    def _hearing_ev(record_id: str, title: str, summary: str = "") -> CivicEvent:
+        return CivicEvent(
+            source_id="test_src",
+            source_record_id=record_id,
+            bbl=str(SAMPLE_SUBSCRIBER["bbl"]),
+            action_type="council_hearing",
+            title=title,
+            summary=summary,
+            address=str(SAMPLE_SUBSCRIBER["address"]),
+            event_date=ASOF + timedelta(days=5),
+            confidence=1.0,
+            status=RecordStatus.ACCEPTED,
+            citations=[
+                Citation(
+                    kind="data_source",
+                    verifies="exact_record",
+                    label="hearing",
+                    url=f"https://example.com/{record_id}",
+                )
+            ],
+        )
+
+    liquor = _hearing_ev("LQ-1", "SLA liquor license application", "Application for beer garden.")
+    non_liquor = _hearing_ev("NL-1", "Zoning variance hearing", "Height variance request.")
+
+    guidance = "CB11 must hold a public hearing. Call 212-831-8929."
+
+    matched_lq = match_subscriber(SAMPLE_SUBSCRIBER, [liquor])
+    digest_lq = build_digest(SAMPLE_SUBSCRIBER, matched_lq, asof=ASOF)
+    body_lq = render_markdown(digest_lq, hearing_guidance=guidance)
+    assert guidance in body_lq
+
+    matched_nl = match_subscriber(SAMPLE_SUBSCRIBER, [non_liquor])
+    digest_nl = build_digest(SAMPLE_SUBSCRIBER, matched_nl, asof=ASOF)
+    body_nl = render_markdown(digest_nl, hearing_guidance=guidance)
+    assert guidance not in body_nl
+
+
 def test_glossary_expands_on_first_use_only():
     # Acronyms defined in the glossary must be expanded inline on their FIRST appearance
     # in the rendered body; subsequent uses of the same acronym must remain unexpanded.
