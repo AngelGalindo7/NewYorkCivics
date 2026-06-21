@@ -440,6 +440,30 @@ def test_happened_this_week_section():
     assert "Happened this week" in body
 
 
+def test_far_future_item_goes_to_later_not_lead():
+    # An item with an open action window more than 60 days out must move to "Later"
+    # rather than cluttering the urgent "Act on this" lead.
+    far = _accepted_event(
+        "FAR-1",
+        "Far-future zoning hearing",
+        event_date=ASOF + timedelta(days=90),
+        deadline=ASOF + timedelta(days=90),
+    )
+    matched = match_subscriber(SAMPLE_SUBSCRIBER, [far])
+    digest = build_digest(SAMPLE_SUBSCRIBER, matched, asof=ASOF)
+
+    lead_titles = [it["title"] for it in digest["lead_items"]]
+    assert "Far-future zoning hearing" not in lead_titles
+
+    later_titles = [it["title"] for it in digest["later_items"]]
+    assert "Far-future zoning hearing" in later_titles
+
+    body = render_markdown(digest)
+    assert "### Later" in body
+    later_section = body.split("### Later")[1]
+    assert "Far-future zoning hearing" in later_section
+
+
 def test_deadline_passed_section_appears_and_lead_excludes_overdue():
     # An ACCEPTED event with a recently lapsed deadline must NOT appear in "Act on this"
     # (actionable_date is None for lapsed deadlines) but MUST appear in "Deadline passed".

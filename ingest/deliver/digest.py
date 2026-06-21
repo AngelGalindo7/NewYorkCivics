@@ -362,7 +362,12 @@ def build_digest(
     # "Act on this": only items with a still-open action window, soonest first. The
     # same item may also appear in its building thread below for context — the digest
     # orders for actionability first. Needs-verification items are excluded from the lead.
-    lead_items = sorted((it for it in all_items if _is_actionable(it)), key=_lead_key)
+    # Items with open windows more than LEAD_MAX_DAYS out move to "Later" so the urgent
+    # lead stays focused on what a reader should act on this week or month.
+    lead_cutoff = asof + timedelta(days=LEAD_MAX_DAYS)
+    actionable = sorted((it for it in all_items if _is_actionable(it)), key=_lead_key)
+    lead_items = [it for it in actionable if it["actionable_date"] <= lead_cutoff]
+    later_items = [it for it in actionable if it["actionable_date"] > lead_cutoff]
 
     # "Deadline passed": lapsed deadlines from the past 90 days — listed so the reader
     # knows what recently closed, without implying there is still an open action window.
@@ -420,6 +425,7 @@ def build_digest(
         "asof": asof.isoformat(),
         "stats_line": stats_line,
         "lead_items": lead_items,
+        "later_items": later_items,
         "overdue_items": overdue_items,
         "recent_items": recent_items,
         "sections": sections,
@@ -513,6 +519,16 @@ def render_markdown(digest: dict[str, Any]) -> str:
             out.append("")
             for item in items:
                 _render_item(item, out)
+
+    # "Later": items with a still-open action window more than LEAD_MAX_DAYS out —
+    # they matter but aren't urgent enough to headline this week's digest.
+    later = digest.get("later_items") or []
+    if later:
+        out.append("### Later")
+        out.append(f"_These items have open action windows more than {LEAD_MAX_DAYS} days out._")
+        out.append("")
+        for item in later:
+            _render_lead_item(item, asof, out)
 
     # "Happened this week": events that occurred in the past 7 days with no open
     # action window — context only, not an invitation to act.
