@@ -25,6 +25,7 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import dataclass
+from datetime import date, timedelta
 from pathlib import Path
 
 try:
@@ -145,7 +146,11 @@ def _fetch_from_fixture(path: Path | None = None) -> list[AgendaRef]:
     return _parse_airtable_records(data)
 
 
-def discover_agendas(board: str | None = None) -> list[AgendaRef]:
+def discover_agendas(
+    board: str | None = None,
+    *,
+    since: str | None = None,
+) -> list[AgendaRef]:
     """Find community board meeting agendas to fetch.
 
     Uses the Airtable API when ``AIRTABLE_TOKEN`` is set in the environment;
@@ -154,6 +159,9 @@ def discover_agendas(board: str | None = None) -> list[AgendaRef]:
     Args:
         board: Restrict discovery to a single board id (e.g. ``"MN11"``).
             ``None`` returns all configured boards (currently only MN11).
+        since: ISO date (``YYYY-MM-DD``) cutoff; only agendas on or after this
+            date are returned. Defaults to 90 days ago so the extractor does
+            not re-process the full multi-year archive on every run.
 
     Returns:
         References to agendas with uploaded PDFs ready to fetch.
@@ -161,12 +169,15 @@ def discover_agendas(board: str | None = None) -> list[AgendaRef]:
     if board is not None and board != "MN11":
         return []
 
+    cutoff = since or (date.today() - timedelta(days=90)).isoformat()
+
     # Lazy import to avoid circular dependency at module load time.
     from ingest.config import get_settings
 
     token = get_settings().airtable_token or os.environ.get("AIRTABLE_TOKEN", "")
     if token:
-        return _fetch_from_airtable(token)
+        refs = _fetch_from_airtable(token)
+        return [r for r in refs if r.meeting_date is None or r.meeting_date >= cutoff]
 
     log.info("AIRTABLE_TOKEN not set; loading CB11 agendas from fixture")
     return _fetch_from_fixture()

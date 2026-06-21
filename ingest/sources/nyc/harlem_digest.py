@@ -381,7 +381,12 @@ def gather_events() -> tuple[list[CivicEvent], bool]:
         # Energy-grade and severe-311 enrichments are on: both are structured, row-cited,
         # ACCEPTED context bounded to the surfaced buildings, and fail soft, so they are safe
         # in the live path.
-        events = gather_live_events(include_grades=True, include_311=True)
+        events = gather_live_events(
+            include_grades=True,
+            include_311=True,
+            include_cb_agenda=True,
+            include_ulurp_packet=True,
+        )
         if events:
             return events, True
         log.warning("live feeds returned no events; using sample data")
