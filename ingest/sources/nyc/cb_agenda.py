@@ -31,7 +31,7 @@ from pathlib import Path
 try:
     import httpx
 except ImportError:
-    httpx = None  # type: ignore[assignment]
+    httpx = None  # type: ignore[assignment, unused-ignore]
 
 from ingest.observability import get_logger
 

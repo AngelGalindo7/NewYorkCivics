@@ -36,7 +36,7 @@ from typing import Any
 try:
     import httpx as _httpx
 except ImportError:
-    _httpx = None  # type: ignore[assignment]
+    _httpx = None  # type: ignore[assignment, unused-ignore]
 
 from ingest.observability import get_logger
 
