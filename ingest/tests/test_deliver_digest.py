@@ -440,6 +440,36 @@ def test_happened_this_week_section():
     assert "Happened this week" in body
 
 
+def test_address_populated_from_extras_primary_address():
+    # When the top-level address field is absent, the item's address must be filled from
+    # extras["primary_address"] so building thread labels show a street address, not a raw BBL.
+    from ingest.deliver.digest import _to_item
+    from ingest.extract.schemas import Citation, CivicEvent, RecordStatus
+
+    ev = CivicEvent(
+        source_id="test_src",
+        source_record_id="ADDR-1",
+        bbl="1016500030",
+        action_type="permit",
+        title="Permit without address field",
+        summary="Test event.",
+        address=None,
+        confidence=1.0,
+        status=RecordStatus.ACCEPTED,
+        extras={"primary_address": "123 MAIN ST"},
+        citations=[
+            Citation(
+                kind="data_source",
+                verifies="exact_record",
+                label="permit",
+                url="https://example.com/permit/ADDR-1",
+            )
+        ],
+    )
+    item = _to_item(ev, BAND_ON_YOUR_BLOCK, ASOF)
+    assert item["address"] == "123 MAIN ST"
+
+
 def test_street_event_permit_stays_out_of_lead():
     # An EW (Equipment Work) permit is outdoor/temporary street-level work — it belongs
     # in the building thread as context but must never lead the digest as an action item.

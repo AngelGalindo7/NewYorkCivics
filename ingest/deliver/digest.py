@@ -210,7 +210,11 @@ def _to_item(event: CivicEvent, band: str, asof: date) -> dict[str, Any]:
         "action_type": event.action_type,
         "band": band,
         "bbl": event.bbl,
-        "address": event.address,
+        "address": (
+            event.address
+            or event.extras.get("primary_address")
+            or (f"BBL {event.bbl}" if event.bbl else None)
+        ),
         "status": event.status.value,
         "confidence": event.confidence,
         "needs_verification": not verified,
