@@ -2,103 +2,50 @@
 
 Single responsibility: discover and download NYC community board meeting agendas
 (PDFs), and identify which board / meeting each belongs to. This is a DIRTY
-source: agendas are PDFs across ~59 board websites with wildly inconsistent
-layouts. This module only fetches bytes + identity metadata; it does NOT parse or
-extract — those are the city-agnostic Parse and Extract stages.
+source: agendas are PDFs with inconsistent layouts. This module only fetches
+bytes + identity metadata; it does NOT parse or extract — those are the
+city-agnostic Parse and Extract stages.
+
+CB11 (Manhattan Community Board 11) maintains its meeting calendar in an
+Airtable base. The connector hits the Airtable REST API when ``AIRTABLE_TOKEN``
+is set; in offline mode (CI, tests, no token) it reads from a local fixture
+file at ``ingest/tests/fixtures/cb11_meetings_airtable.json``.
 
 Design notes
 ------------
-- No LLM at this stage: fetch is deterministic; any model-assisted extraction
-  fires later, in the Extract stage, on the parsed PDF.
-- Raw bytes are preserved faithfully so every downstream fact can trace back to a
-  verbatim line in the original agenda (source grounding).
-- Board URLs and the ~59-board roster are NYC-specific knowledge and stay in
-  this package (nyc/).
-
-This is one of the two PDF connectors (with ``ulurp_packet``). The ~59 boards
-cluster by website template; Phase 2 builds fetchers per cluster (likely 5-20),
-not per board.
+- No LLM at this stage: fetch is deterministic.
+- Raw PDF bytes are preserved faithfully so every downstream fact can trace
+  back to a verbatim line in the original agenda (source grounding).
+- Board-specific knowledge (base id, table id) stays in this package (nyc/).
+- The ~59-board roster is Phase 2; this connector handles MN11 only.
 """
 
 from __future__ import annotations
 
-import re
+import json
+import os
 from dataclasses import dataclass
-from datetime import date as _date
-from urllib.parse import urljoin
+from datetime import date, timedelta
+from pathlib import Path
 
 try:
     import httpx
 except ImportError:
-    httpx = None
-
-try:
-    from bs4 import BeautifulSoup
-except ImportError:
-    BeautifulSoup = None
+    httpx = None  # type: ignore[assignment, unused-ignore]
 
 from ingest.observability import get_logger
 
 log = get_logger(__name__)
 
 SOURCE_ID = "nyc_cb_mn11"
-_LISTING_URL = (
-    "https://www.nyc.gov/site/manhattancb11/meetings/meeting-notices.page"
-    # The nyc.gov/site/manhattancb11 subdomain has been retired.
-    # Update this URL when CB11 migrates to its new home.
+
+_AIRTABLE_BASE_ID = "apphZWGKrurmBYkuh"
+_AIRTABLE_TABLE_ID = "tbldWVutSlb06he2b"
+_AIRTABLE_API_URL = f"https://api.airtable.com/v0/{_AIRTABLE_BASE_ID}/{_AIRTABLE_TABLE_ID}"
+_FIXTURE_PATH = (
+    Path(__file__).parent.parent.parent / "tests" / "fixtures" / "cb11_meetings_airtable.json"
 )
 _TIMEOUT = 20.0
-
-# Patterns to extract a meeting date from link text.
-# Tries long month name, abbreviated month name, then numeric slashes/dashes.
-_DATE_PATTERNS = [
-    (
-        re.compile(
-            r"\b(January|February|March|April|May|June|July|August|September|October|November|December)"
-            r"\s+(\d{1,2}),?\s+(\d{4})\b"
-        ),
-        "long",
-    ),
-    (
-        re.compile(
-            r"\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\.?\s+(\d{1,2}),?\s+(\d{4})\b"
-        ),
-        "short",
-    ),
-    (
-        re.compile(r"\b(\d{1,2})[/\-](\d{1,2})[/\-](\d{4})\b"),
-        "numeric",
-    ),
-]
-
-_MONTH_LONG = {
-    "January": 1,
-    "February": 2,
-    "March": 3,
-    "April": 4,
-    "May": 5,
-    "June": 6,
-    "July": 7,
-    "August": 8,
-    "September": 9,
-    "October": 10,
-    "November": 11,
-    "December": 12,
-}
-_MONTH_SHORT = {
-    "Jan": 1,
-    "Feb": 2,
-    "Mar": 3,
-    "Apr": 4,
-    "May": 5,
-    "Jun": 6,
-    "Jul": 7,
-    "Aug": 8,
-    "Sep": 9,
-    "Oct": 10,
-    "Nov": 11,
-    "Dec": 12,
-}
 
 
 @dataclass(frozen=True)
@@ -106,105 +53,143 @@ class AgendaRef:
     """A discovered community board agenda, before download.
 
     Attributes:
-        board: Community board id (e.g. ``"MN07"`` for Manhattan CB7). NYC-SPECIFIC.
-        url: Direct link to the agenda PDF.
-        meeting_date: ISO date of the meeting, if discoverable from the listing.
-        title: Human label as it appears on the source site, if any.
+        board: Community board id (e.g. ``"MN11"``). NYC-SPECIFIC.
+        url: Pre-signed Airtable CDN link to the agenda PDF; typically expires
+            within ~1 hour of discovery. Callers must fetch in the same pipeline
+            run — do not cache or serialize refs for later use.
+        meeting_date: ISO date of the meeting (``YYYY-MM-DD``), if available.
+        title: Meeting name as it appears in the Airtable calendar.
+        meeting_type: Committee or meeting type (e.g. ``"Full Board"``).
+        location: Meeting venue, if recorded.
+        register_url: Public registration link for attendees, if available.
     """
 
     board: str
     url: str
     meeting_date: str | None = None
     title: str | None = None
+    meeting_type: str | None = None
+    location: str | None = None
+    register_url: str | None = None
 
 
-def _extract_date(text: str) -> str | None:
-    """Try to parse an ISO date string from free-form link text."""
-    for pattern, kind in _DATE_PATTERNS:
-        m = pattern.search(text)
-        if m is None:
-            continue
-        if kind == "long":
-            month = _MONTH_LONG.get(m.group(1))
-            if month is None:
-                continue
-            day = int(m.group(2))
-            year = int(m.group(3))
-        elif kind == "short":
-            month = _MONTH_SHORT.get(m.group(1))
-            if month is None:
-                continue
-            day = int(m.group(2))
-            year = int(m.group(3))
-        else:  # numeric: MM/DD/YYYY or MM-DD-YYYY
-            month = int(m.group(1))
-            day = int(m.group(2))
-            year = int(m.group(3))
-        try:
-            return _date(year, month, day).isoformat()
-        except ValueError:
-            continue
-    return None
+def _parse_airtable_records(data: dict) -> list[AgendaRef]:
+    """Map a raw Airtable API response body into AgendaRefs.
 
-
-def _parse_agenda_html(html: str) -> list[AgendaRef]:
-    """Parse CB11 meeting-notices HTML into a list of AgendaRefs.
-
-    Internal helper — not in the public API, but extracted so tests can call it
-    without network.
+    Records without an uploaded agenda PDF are skipped.
     """
-    if BeautifulSoup is None:
+    refs: list[AgendaRef] = []
+    for record in data.get("records", []):
+        fields = record.get("fields", {})
+        attachments = fields.get("Agenda", [])
+        if not attachments:
+            continue
+        agenda_url = attachments[0].get("url", "")
+        if not agenda_url:
+            continue
+
+        raw_date = fields.get("Date")
+        meeting_date = raw_date[:10] if raw_date else None
+
+        refs.append(
+            AgendaRef(
+                board="MN11",
+                url=agenda_url,
+                meeting_date=meeting_date,
+                title=fields.get("Name"),
+                meeting_type=fields.get("Type"),
+                location=fields.get("Location"),
+                register_url=fields.get("Register to Attend"),
+            )
+        )
+    return refs
+
+
+def _fetch_from_airtable(token: str) -> list[AgendaRef]:
+    """Page through the Airtable API and return all records with an agenda PDF."""
+    if httpx is None:
+        log.warning("httpx not installed; Airtable CB11 fetch skipped")
         return []
 
-    soup = BeautifulSoup(html, "html.parser")
+    headers = {"Authorization": f"Bearer {token}"}
     refs: list[AgendaRef] = []
-    seen: set[str] = set()
+    params: dict[str, str] = {}
 
-    for tag in soup.find_all("a", href=True):
-        href = str(tag["href"])
-        if not href or not href.lower().endswith(".pdf"):
-            continue
-        url = urljoin("https://www.nyc.gov", href)
-        if url in seen:
-            continue
-        seen.add(url)
-        title = tag.get_text(strip=True)
-        meeting_date = _extract_date(title)
-        refs.append(AgendaRef(board="MN11", url=url, meeting_date=meeting_date, title=title))
+    while True:
+        try:
+            resp = httpx.get(_AIRTABLE_API_URL, headers=headers, params=params, timeout=_TIMEOUT)
+            resp.raise_for_status()
+        except Exception as exc:
+            log.warning("Airtable CB11 fetch failed (%s); returning partial results", exc)
+            return refs
+
+        data = resp.json()
+        refs.extend(_parse_airtable_records(data))
+
+        offset = data.get("offset")
+        if not offset:
+            break
+        # Pagination: offset-based; live path only — the fixture stays below the
+        # 100-record page limit so CI never exercises this branch.
+        params = {"offset": offset}
 
     return refs
 
 
-def discover_agendas(board: str | None = None) -> list[AgendaRef]:
-    """Find new community board agendas to fetch.
+def _fetch_from_fixture(path: Path | None = None) -> list[AgendaRef]:
+    """Load AgendaRefs from the local fixture file (offline / CI mode)."""
+    fixture = path or _FIXTURE_PATH
+    if not fixture.exists():
+        log.warning("CB11 fixture not found at %s; returning []", fixture)
+        return []
+    data = json.loads(fixture.read_text(encoding="utf-8"))
+    return _parse_airtable_records(data)
+
+
+def discover_agendas(
+    board: str | None = None,
+    *,
+    since: str | None = None,
+) -> list[AgendaRef]:
+    """Find community board meeting agendas to fetch.
+
+    Uses the Airtable API when ``AIRTABLE_TOKEN`` is set in the environment;
+    falls back to the local fixture file for offline development and CI.
 
     Args:
-        board: Restrict discovery to a single board id; ``None`` scans all
-            configured boards.
+        board: Restrict discovery to a single board id (e.g. ``"MN11"``).
+            ``None`` returns all configured boards (currently only MN11).
+        since: ISO date (``YYYY-MM-DD``) cutoff; only agendas on or after this
+            date are returned. Defaults to 90 days ago so the extractor does
+            not re-process the full multi-year archive on every run.
 
     Returns:
-        References to agendas not yet ingested (caller dedups against the store).
+        References to agendas with uploaded PDFs ready to fetch.
     """
     if board is not None and board != "MN11":
-        return []  # Phase 2 handles the full 59-board roster
-    if httpx is None:
-        log.warning("httpx not installed; cb_agenda.discover_agendas skipped")
         return []
-    try:
-        with httpx.Client(timeout=_TIMEOUT, follow_redirects=True) as client:
-            resp = client.get(_LISTING_URL, headers={"User-Agent": "nyc-civic-ingest/1.0"})
-            resp.raise_for_status()
-    except Exception as exc:
-        log.warning("CB11 agenda listing fetch failed (%s); returning []", exc)
-        return []
-    return _parse_agenda_html(resp.text)
+
+    cutoff = since or (date.today() - timedelta(days=90)).isoformat()
+
+    # Lazy import to avoid circular dependency at module load time.
+    from ingest.config import get_settings
+
+    token = get_settings().airtable_token or os.environ.get("AIRTABLE_TOKEN", "")
+    if token:
+        refs = _fetch_from_airtable(token)
+        return [r for r in refs if r.meeting_date is None or r.meeting_date >= cutoff]
+
+    log.info("AIRTABLE_TOKEN not set; loading CB11 agendas from fixture")
+    return _fetch_from_fixture()
 
 
 def fetch(url: str) -> bytes:
     """Download one agenda PDF.
 
+    Airtable attachment URLs are pre-signed CDN links — no auth header required.
+
     Args:
-        url: Direct PDF link from an :class:`AgendaRef`.
+        url: Direct PDF URL from an :class:`AgendaRef`.
 
     Returns:
         Raw PDF bytes, handed verbatim to Parse (preserved for source grounding).
@@ -215,9 +200,3 @@ def fetch(url: str) -> bytes:
         resp = client.get(url, headers={"User-Agent": "nyc-civic-ingest/1.0"})
         resp.raise_for_status()
         return resp.content
-
-
-# TODO Phase 2: build the board roster + per-cluster fetchers; verify real cluster
-#   count in week 4 (may be 15-20; the long tail is where time goes).
-# TODO Phase 2: link discovered agendas to a project_thread_id where the meeting
-#   references a known ULURP/ZAP item (cross-source correlation).

@@ -53,8 +53,8 @@ jobs:
           node-version: "20"
           cache: "npm"
 
-      - name: Install Node deps (pinned via lockfile)
-        run: npm ci
+      - name: Install Node deps
+        run: npm install --no-audit
 
       # Guard: only matters for manual/forked runs where the committed promptfoo.yaml might be
       # absent. On normal PRs the `paths` filter already guarantees it exists; skip cleanly if not.

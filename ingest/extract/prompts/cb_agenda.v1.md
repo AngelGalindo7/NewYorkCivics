@@ -38,12 +38,14 @@ action), emit one `CivicEvent` object with these fields where present:
 
 ## Hard rules
 
-1. **Quote the source (Rule 3).** For **every extracted** field you assert, add an entry to
-   `provenance`: `{ "value": <value>, "source_quote": "<verbatim sentence from the
-   agenda>", "page": <1-based page>, "char_span": [start, end] }`. The value MUST
-   appear in its `source_quote`. If you cannot quote it, do not assert it. The one exception
-   is **`summary`**, which you *synthesize* in plain English — it has no single verbatim
-   source, so it needs no provenance entry (but every fact in it must trace to a quoted field).
+1. **Quote the source (Rule 3).** For **every named field** you assert (those listed in
+   the table above), add an entry to `provenance`: `{ "value": <value>, "source_quote":
+   "<verbatim sentence from the agenda>", "page": <1-based page>, "char_span": [start,
+   end] }`. The value MUST appear in its `source_quote`. If you cannot quote it, do not
+   assert it. Two exceptions need no provenance entry: **`summary`** (synthesized plain
+   English — facts in it must trace to other quoted fields) and **`extras`** (a bag of
+   miscellaneous key-value pairs with no single source quote — do NOT add a
+   `provenance.extras` entry).
 2. **Abstain, don't guess (Rule 2).** If a field is not clearly stated, leave it
    `null`. Never infer a date, BBL, or ULURP number that isn't in the text. Set a
    low `confidence` and flag uncertainty rather than fabricating.

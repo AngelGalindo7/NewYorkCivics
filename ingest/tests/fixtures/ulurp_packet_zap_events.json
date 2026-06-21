@@ -1,0 +1,5 @@
+[
+  {"source_id": "nyc_zap", "source_record_id": "2020M0383", "ulurp_number": "C 240042 ZMM", "project_thread_id": "zap:2020M0383", "title": "Zoning Map Amendment — In Public Review", "action_type": "rezoning"},
+  {"source_id": "nyc_zap", "source_record_id": "2023M0117", "ulurp_number": "N 230117 ZRM", "project_thread_id": "zap:2023M0117", "title": "Zoning Text Amendment — In Public Review", "action_type": "rezoning"},
+  {"source_id": "nyc_zap", "source_record_id": "2022M0088", "ulurp_number": "C 220088 ZSM", "project_thread_id": "zap:2022M0088", "title": "Special Permit — Approved", "action_type": "special_permit"}
+]

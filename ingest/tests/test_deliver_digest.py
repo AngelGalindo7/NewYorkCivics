@@ -57,7 +57,11 @@ def test_every_item_carries_verifiable_citations(digest):
 
 
 def test_overdue_hpd_deadline_surfaces_as_attention(digest):
-    hpd = next(it for it in _all_items(digest) if it["title"] == "HPD Class C violation")
+    hpd = next(
+        it
+        for it in _all_items(digest)
+        if it["title"] == "Immediately hazardous violation (Class C) — HPD"
+    )
     assert hpd["deadline_note"] is not None
     assert "overdue" in hpd["deadline_note"]
     assert digest["needs_attention_count"] >= 1
@@ -355,3 +359,33 @@ def test_lead_is_sorted_soonest_first():
     assert lead_titles == ["Sooner hearing", "Later hearing"]
     dates = [it["actionable_date"] for it in digest["lead_items"]]
     assert dates == sorted(dates) and dates[0] != dates[-1]  # genuinely ascending, not equal
+
+
+def test_hpd_title_uses_plain_english(digest):
+    # The severity word must lead; the raw class code stays in parens for traceability.
+    body = render_markdown(digest)
+    assert "immediately hazardous" in body.lower()
+    assert "Class C" in body
+    # Old jargon-led format must be gone.
+    assert "HPD Class C violation" not in body
+
+
+def test_dob_permit_title_plain_english_leads(digest):
+    # Plain-English action type must appear before the raw DOB job code in the title.
+    body = render_markdown(digest)
+    lower = body.lower()
+    assert "major alteration" in lower
+    assert lower.index("major alteration") < lower.index("(dob a1)")
+
+
+def test_zap_summary_does_not_contain_bare_ulurp_label(digest):
+    # The old unexplained "ULURP: <number>" label is replaced; the number may still
+    # appear in the title or citations, but the bare unexplained label is retired.
+    body = render_markdown(digest)
+    assert "ULURP:" not in body
+
+
+def test_stats_line_uses_walkable_area_framing(digest):
+    line = digest["stats_line"]
+    assert line is not None
+    assert line.startswith("This week within a 5-minute walk:")

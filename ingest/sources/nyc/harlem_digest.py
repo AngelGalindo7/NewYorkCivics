@@ -25,9 +25,11 @@ from itertools import islice
 from ingest.deliver.digest import build_digest, render_markdown
 from ingest.deliver.match import match_subscriber
 from ingest.deliver.send import send_digest
+from ingest.extract import extractor
 from ingest.extract.schemas import CivicEvent
 from ingest.observability import get_logger
-from ingest.sources.nyc import cb_agenda
+from ingest.parse import ParsedDoc, pdf_text
+from ingest.sources.nyc import cb_agenda, corroborate, ulurp_packet
 from ingest.sources.nyc.building_grades import discover_energy_grades
 from ingest.sources.nyc.dob_hpd import (
     DOB_PERMITS_FEED,
@@ -71,6 +73,8 @@ def gather_live_events(
     include_grades: bool = False,
     include_311: bool = False,
     include_cb_agenda: bool = False,
+    include_ulurp_packet: bool = False,
+    max_pages: int = 20,
 ) -> list[CivicEvent]:
     """Pull a bounded slice of recent East Harlem events from the live feeds.
 
@@ -97,9 +101,17 @@ def gather_live_events(
     Like the grades, it is bounded to the surfaced BBLs and is low-key context, never a
     headline -- and it is framed as resident reports, not confirmed violations.
 
-    ``include_cb_agenda`` (off by default) fetches CB11 board meeting agenda PDFs.
-    Disabled until the spot-check (§4.3) passes; the parse/extract leg is stubbed here —
-    only the discover → fetch chain is live.
+    ``include_cb_agenda`` (off by default) fetches CB11 board meeting agenda PDFs and
+    runs the full parse → extract chain to surface meeting items as CivicEvents.
+
+    ``include_ulurp_packet`` (off by default) fetches primary ULURP packet PDFs for active
+    East Harlem land-use applications and runs the full parse → extract chain. Because
+    packets are typically hundreds of pages, only the first ``max_pages`` pages are sent
+    to the extractor (the actionable summary, hearing dates, and affected addresses are
+    concentrated in the opening pages).
+
+    ``max_pages`` (default 20) caps the pages of each ULURP packet that reach the LLM
+    extractor. Has no effect on the agenda leg (agendas are small documents).
     """
     events: list[CivicEvent] = []
     events += list(
@@ -135,21 +147,63 @@ def gather_live_events(
             log.warning("311 enrichment skipped (%s)", exc)
     if include_cb_agenda:
         try:
-            for ref in cb_agenda.discover_agendas("MN11"):
+            for agenda_ref in cb_agenda.discover_agendas("MN11"):
                 try:
-                    pdf_bytes = cb_agenda.fetch(ref.url)
+                    pdf_bytes = cb_agenda.fetch(agenda_ref.url)
                 except Exception as exc:
-                    log.warning("cb_agenda fetch failed for %s (%s)", ref.url, exc)
+                    log.warning("cb_agenda fetch failed for %s (%s)", agenda_ref.url, exc)
                     continue
-                log.info(
-                    "cb_agenda: fetched %d bytes from %s (%s)",
-                    len(pdf_bytes),
-                    ref.url,
-                    ref.meeting_date or "date unknown",
-                )
-                # Parse + extract wired in the spot-check step (§4.3); fetch confirmed live here.
+                try:
+                    doc = pdf_text.extract_text(pdf_bytes)
+                    agenda_events = extractor.extract(doc, source_id=cb_agenda.SOURCE_ID)
+                    events += agenda_events
+                    log.info(
+                        "cb_agenda: extracted %d event(s) from %s (%s)",
+                        len(agenda_events),
+                        agenda_ref.url,
+                        agenda_ref.meeting_date or "date unknown",
+                    )
+                except Exception as exc:
+                    log.warning("cb_agenda parse/extract failed for %s (%s)", agenda_ref.url, exc)
         except Exception as exc:
             log.warning("cb_agenda discovery skipped (%s)", exc)
+    if include_ulurp_packet:
+        try:
+            for packet_ref in ulurp_packet.discover_packets():
+                try:
+                    pdf_bytes = ulurp_packet.fetch(packet_ref.url)
+                except Exception as exc:
+                    log.warning("ulurp_packet fetch failed for %s (%s)", packet_ref.url, exc)
+                    continue
+                try:
+                    doc = pdf_text.extract_text(pdf_bytes)
+                    # Packets are hundreds of pages; only the opening pages contain
+                    # the actionable summary, hearing dates, and affected addresses.
+                    if max_pages and doc.layout and len(doc.layout) > max_pages:
+                        char_limit = (
+                            sum(p.char_count for p in doc.layout[:max_pages])
+                            + max(0, max_pages - 1) * 2
+                        )
+                        doc = ParsedDoc(
+                            text=doc.text[:char_limit],
+                            layout=doc.layout[:max_pages],
+                        )
+                    packet_events = extractor.extract(doc, source_id=ulurp_packet.SOURCE_ID)
+                    events += packet_events
+                    log.info(
+                        "ulurp_packet: extracted %d event(s) from %s (%s)",
+                        len(packet_events),
+                        packet_ref.url,
+                        packet_ref.ulurp_number,
+                    )
+                except Exception as exc:
+                    log.warning(
+                        "ulurp_packet parse/extract failed for %s (%s)", packet_ref.url, exc
+                    )
+        except Exception as exc:
+            log.warning("ulurp_packet discovery skipped (%s)", exc)
+    zap_events = [e for e in events if e.source_id == "nyc_zap"]
+    events = corroborate.corroborate_against_zap(events, zap_events)
     return events
 
 
@@ -327,7 +381,12 @@ def gather_events() -> tuple[list[CivicEvent], bool]:
         # Energy-grade and severe-311 enrichments are on: both are structured, row-cited,
         # ACCEPTED context bounded to the surfaced buildings, and fail soft, so they are safe
         # in the live path.
-        events = gather_live_events(include_grades=True, include_311=True)
+        events = gather_live_events(
+            include_grades=True,
+            include_311=True,
+            include_cb_agenda=True,
+            include_ulurp_packet=True,
+        )
         if events:
             return events, True
         log.warning("live feeds returned no events; using sample data")

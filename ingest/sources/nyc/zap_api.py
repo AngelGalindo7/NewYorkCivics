@@ -164,10 +164,10 @@ def _address(*parts: str | None) -> str | None:
 
 
 def _first_ulurp(raw: str | None) -> str | None:
-    """First ULURP number from a comma- or pipe-separated string."""
+    """First ULURP number from a comma-, pipe-, or semicolon-separated string."""
     if not raw:
         return None
-    first = raw.replace("|", ",").split(",")[0].strip()
+    first = raw.replace("|", ",").replace(";", ",").split(",")[0].strip()
     return first or None
 
 
@@ -273,8 +273,9 @@ def _zap_project_to_event(rec: Mapping[str, Any], bbl_value: str | None = None) 
         summary_parts.append(f"Applicant: {applicant}.")
     if public_status:
         summary_parts.append(f"Status: {public_status}.")
-    if ulurp_raw:
-        summary_parts.append(f"ULURP: {ulurp_raw}.")
+    # Only append the application number to the summary if it's not already in the title.
+    if ulurp_raw and ulurp_raw not in title:
+        summary_parts.append(f"Land-use review application number: {ulurp_raw}.")
     summary = " ".join(summary_parts)
 
     return CivicEvent(
