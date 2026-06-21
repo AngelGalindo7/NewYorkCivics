@@ -71,13 +71,21 @@ def test_same_bbl_event_lands_on_your_block():
 
 def test_events_on_one_building_are_threaded_into_one_group():
     # Two events sharing a BBL must collapse into a single building group (Rule 7),
-    # not appear as two separate top-level entries.
-    from ingest.deliver.digest import _group_buildings, _to_item
+    # not appear as two separate top-level entries. The DOB permit events (issuance
+    # dates in the past, no deadline) are filtered out by the pure-past-event filter,
+    # so the surviving on-block events are the HPD violation and the displacement signal,
+    # both on BBL 1016500030 -> they still form one group.
+    from ingest.deliver.digest import _group_buildings, _to_item, build_digest
+    from ingest.deliver.match import match_subscriber as ms
 
-    matched = match_subscriber(SAMPLE_SUBSCRIBER, _sample_events())
+    matched = ms(SAMPLE_SUBSCRIBER, _sample_events())
     block = [_to_item(ev, BAND_ON_YOUR_BLOCK, ASOF) for ev in matched[BAND_ON_YOUR_BLOCK]]
-    groups = _group_buildings(block)
-    # displacement signal + the A1 permit are both BBL 1016500030 -> one group.
+    # build_digest applies the filter; check the groups from the actual digest sections.
+    dig = build_digest(SAMPLE_SUBSCRIBER, matched, asof=ASOF)
+    block_section = next((s for s in dig["sections"] if s["band"] == BAND_ON_YOUR_BLOCK), None)
+    assert block_section is not None
+    groups = block_section["buildings"]
+    # HPD violation + displacement signal are both BBL 1016500030 -> one group.
     assert len(groups) < len(block)
     assert max(len(g["items"]) for g in groups) >= 2
 
@@ -381,6 +389,55 @@ def _accepted_event(record_id: str, title: str, *, event_date: date, deadline: d
             )
         ],
     )
+
+
+def test_pure_past_event_is_dropped():
+    # An event that happened in the past with no deadline gives the reader nothing to
+    # act on and should be filtered out of all digest sections.
+    past = _accepted_event(
+        "PAST-1",
+        "Already happened permit",
+        event_date=ASOF - timedelta(days=10),
+        deadline=None,
+    )
+    matched = match_subscriber(SAMPLE_SUBSCRIBER, [past])
+    digest = build_digest(SAMPLE_SUBSCRIBER, matched, asof=ASOF)
+    assert digest["item_count"] == 0
+
+    # An event with a lapsed deadline IS kept (appears in overdue/sections, not lead).
+    overdue = _accepted_event(
+        "OVERDUE-KEEP-1",
+        "Lapsed deadline permit",
+        event_date=ASOF - timedelta(days=5),
+        deadline=ASOF - timedelta(days=3),
+    )
+    matched2 = match_subscriber(SAMPLE_SUBSCRIBER, [overdue])
+    digest2 = build_digest(SAMPLE_SUBSCRIBER, matched2, asof=ASOF)
+    assert digest2["item_count"] == 1
+    assert len(digest2["overdue_items"]) == 1
+
+
+def test_happened_this_week_section():
+    # An event from 3 days ago with no deadline is a pure past event — but it was
+    # filtered in as "Happened this week" only if the filter logic keeps it.
+    # Actually per A2: pure past events (event_date < asof, deadline=None) ARE dropped
+    # from all_items. The "Happened this week" subsection draws from the surviving
+    # all_items (those with lapsed deadlines or no event_date). A past permit WITH a
+    # lapsed deadline falls in "Deadline passed", not "Happened this week", because its
+    # deadline condition triggers the overdue filter first.
+    # What actually goes to "Happened this week": items with a lapsed deadline AND
+    # event_date within the last 7 days (they survive the filter because deadline is not None).
+    recent_with_deadline = _accepted_event(
+        "RECENT-DL-1",
+        "Recent application with closed window",
+        event_date=ASOF - timedelta(days=3),
+        deadline=ASOF - timedelta(days=1),
+    )
+    matched = match_subscriber(SAMPLE_SUBSCRIBER, [recent_with_deadline])
+    digest = build_digest(SAMPLE_SUBSCRIBER, matched, asof=ASOF)
+    assert len(digest["recent_items"]) == 1
+    body = render_markdown(digest)
+    assert "Happened this week" in body
 
 
 def test_deadline_passed_section_appears_and_lead_excludes_overdue():

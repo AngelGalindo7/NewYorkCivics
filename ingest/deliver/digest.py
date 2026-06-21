@@ -325,14 +325,39 @@ def build_digest(
     """
     asof = asof or date.today()
 
-    sections: list[dict[str, Any]] = []
-    all_items: list[dict[str, Any]] = []
+    raw_items: list[dict[str, Any]] = []
+    _band_map: dict[str, str] = {}
     for band, label in _BAND_LABELS:
-        items = [_to_item(ev, band, asof) for ev in matched.get(band, [])]
-        if items:
-            buildings = _group_buildings(items)
+        for ev in matched.get(band, []):
+            it = _to_item(ev, band, asof)
+            raw_items.append(it)
+            _band_map[band] = label
+
+    # Drop pure past events: an event that already happened with no open deadline gives
+    # a reader nothing to act on and clutters the feed. Events with a lapsed deadline
+    # are kept because they belong in "Deadline passed". Events with no event_date
+    # (e.g. a displacement signal) are always kept.
+    all_items = [
+        it
+        for it in raw_items
+        if not (it["event_date"] is not None and it["event_date"] < asof and it["deadline"] is None)
+    ]
+
+    # "Happened this week": past events that fell within the last 7 days — context only,
+    # no open action window, surfaced so the reader knows what just occurred nearby.
+    recent_cutoff = asof - timedelta(days=7)
+    recent_items = [
+        it
+        for it in all_items
+        if it["event_date"] is not None and recent_cutoff <= it["event_date"] < asof
+    ]
+
+    sections: list[dict[str, Any]] = []
+    for band, label in _BAND_LABELS:
+        band_items = [it for it in all_items if it["band"] == band]
+        if band_items:
+            buildings = _group_buildings(band_items)
             sections.append({"band": band, "label": label, "buildings": buildings})
-            all_items.extend(items)
 
     # "Act on this": only items with a still-open action window, soonest first. The
     # same item may also appear in its building thread below for context — the digest
@@ -396,6 +421,7 @@ def build_digest(
         "stats_line": stats_line,
         "lead_items": lead_items,
         "overdue_items": overdue_items,
+        "recent_items": recent_items,
         "sections": sections,
         "item_count": n,
         "building_count": building_count,
@@ -487,6 +513,19 @@ def render_markdown(digest: dict[str, Any]) -> str:
             out.append("")
             for item in items:
                 _render_item(item, out)
+
+    # "Happened this week": events that occurred in the past 7 days with no open
+    # action window — context only, not an invitation to act.
+    recent = digest.get("recent_items") or []
+    if recent:
+        out.append("### Happened this week")
+        out.append(
+            "_These events occurred in the past 7 days"
+            " — they are context, not an open action window._"
+        )
+        out.append("")
+        for item in recent:
+            _render_item(item, out)
 
     if digest["footnotes"]:
         out.append("---")
