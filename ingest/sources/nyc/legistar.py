@@ -415,6 +415,166 @@ def discover_cd_hearings(cd: str, days_ahead: int = 30) -> list[CivicEvent]:
     return results
 
 
+# ── Agenda enrichment ────────────────────────────────────────────────────────
+
+_VOTE_MATTER_KEYWORDS = frozenset(
+    {
+        "housing",
+        "land use",
+        "zoning",
+        "rezoning",
+        "affordable",
+        "tenant",
+        "displacement",
+        "ulurp",
+        "landmark",
+        "special permit",
+        "variance",
+    }
+)
+
+
+def _matches_vote_keywords(title: str) -> bool:
+    lower = title.lower()
+    return any(kw in lower for kw in _VOTE_MATTER_KEYWORDS)
+
+
+def _fetch_event_items(client: httpx.Client, event_id: int) -> list[dict[str, Any]]:
+    """Fetch all EventItems for ``event_id`` using an already-open ``client``."""
+    if httpx is None:
+        raise RuntimeError("httpx is not installed; install it with: pip install httpx")
+    token_params = _request_params(get_settings().legistar_token)
+    rows: list[dict[str, Any]] = []
+    skip = 0
+    while True:
+        page = _get_page(
+            client,
+            f"/Events/{event_id}/EventItems",
+            {"$top": _PAGE, "$skip": skip, **token_params},
+        )
+        if not page:
+            break
+        rows.extend(page)
+        if len(page) < _PAGE:
+            break
+        skip += len(page)
+    return rows
+
+
+def enrich_with_agenda(event: CivicEvent) -> CivicEvent:
+    """Return a copy of ``event`` with agenda item titles appended to its summary.
+
+    Fetches ``GET /Events/{event_id}/EventItems`` for the event referenced by
+    ``event.source_record_id`` (format: ``event:{EventId}``), collects
+    ``EventItemTitle`` strings, and appends them as a bullet list.  The raw list
+    is stored in ``event.extras["agenda_items"]``.  The original event is never
+    mutated.
+
+    Raises:
+        ValueError: if ``source_record_id`` does not match ``event:{int}``.
+        RuntimeError: if httpx is not installed.
+    """
+    if httpx is None:
+        raise RuntimeError("httpx is not installed; install it with: pip install httpx")
+    parts = event.source_record_id.split(":")
+    if len(parts) != 2 or not parts[1].isdigit():
+        raise ValueError(f"Cannot parse event_id from source_record_id={event.source_record_id!r}")
+    event_id = int(parts[1])
+    with httpx.Client(timeout=_TIMEOUT, headers=_HEADERS) as client:
+        items = _fetch_event_items(client, event_id)
+    titles = [it["EventItemTitle"] for it in items if it.get("EventItemTitle")]
+    agenda_block = "Agenda:\n" + "\n".join(f"- {t}" for t in titles) if titles else ""
+    new_summary = ((event.summary + "\n\n") if event.summary else "") + agenda_block
+    return event.model_copy(
+        update={
+            "summary": new_summary.strip(),
+            "extras": {**event.extras, "agenda_items": titles},
+        }
+    )
+
+
+def discover_stated_meeting_votes(event_id: int) -> list[CivicEvent]:
+    """Return one CivicEvent per housing/land-use roll-call vote at a Stated Meeting.
+
+    Fetches EventItems for ``event_id``, filters to items whose title matches
+    ``_VOTE_MATTER_KEYWORDS``, fetches the per-item vote records, and emits one
+    ``council_vote`` CivicEvent per matched item that has at least one vote row.
+
+    Raises:
+        RuntimeError: if httpx is not installed.
+    """
+    if httpx is None:
+        raise RuntimeError("httpx is not installed; install it with: pip install httpx")
+    token_params = _request_params(get_settings().legistar_token)
+    results: list[CivicEvent] = []
+    with httpx.Client(timeout=_TIMEOUT, headers=_HEADERS) as client:
+        agenda_items = _fetch_event_items(client, event_id)
+        for item in agenda_items:
+            item_title: str = item.get("EventItemTitle") or ""
+            if not _matches_vote_keywords(item_title):
+                continue
+            item_id: int = item["EventItemId"]
+            try:
+                votes: list[dict[str, Any]] = []
+                skip = 0
+                while True:
+                    page = _get_page(
+                        client,
+                        f"/EventItems/{item_id}/Votes",
+                        {"$top": _PAGE, "$skip": skip, **token_params},
+                    )
+                    if not page:
+                        break
+                    votes.extend(page)
+                    if len(page) < _PAGE:
+                        break
+                    skip += len(page)
+            except Exception as exc:  # noqa: BLE001 — fail soft per item
+                log.warning("vote fetch skipped for item %d: %s", item_id, exc)
+                continue
+            if not votes:
+                continue
+            roll_call = {v["VotePersonName"]: v["VoteValueName"] for v in votes}
+            passed: str = item.get("EventItemPassedFlagName") or ""
+            tally: str = item.get("EventItemTally") or ""
+            title = item_title or f"Agenda item {item_id}"
+            summary = (
+                f"Council vote on '{title}': {passed}"
+                + (f" ({tally})" if tally else "")
+                + f". {len(roll_call)} member(s) recorded."
+            )
+            results.append(
+                CivicEvent(
+                    source_id=SOURCE_ID,
+                    source_record_id=f"item:{item_id}",
+                    project_thread_id=f"legistar:event:{event_id}",
+                    action_type="council_vote",
+                    title=title,
+                    summary=summary,
+                    confidence=1.0,
+                    status=RecordStatus.ACCEPTED,
+                    citations=[
+                        Citation(
+                            kind="data_source",
+                            verifies="exact_record",
+                            label=f"NYC Council Vote — Item {item_id}",
+                            url=f"https://legistar.council.nyc.gov/MeetingDetail.aspx?ID={event_id}",
+                            retrieved_at=datetime.now(UTC),
+                        )
+                    ],
+                    extras={
+                        "roll_call": roll_call,
+                        "event_id": event_id,
+                        "event_item_id": item_id,
+                        "passed": passed,
+                        "tally": tally,
+                    },
+                    extracted_at=datetime.now(UTC),
+                )
+            )
+    return results
+
+
 def fetch_roll_call(matter_id: str) -> CivicEvent:
     """Fetch the roll-call vote breakdown for one matter.
 

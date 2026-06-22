@@ -562,3 +562,111 @@ def test_parse_calendar_html_skips_row_without_date():
         "</tr></tbody></table>"
     )
     assert _parse_calendar_html(html) == []
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# B1 — enrich_with_agenda
+# ══════════════════════════════════════════════════════════════════════════════
+
+SAMPLE_EVENT_ITEMS = [
+    {"EventItemId": 101, "EventItemTitle": "Matter A — Rezoning 123 Main St"},
+    {"EventItemId": 102, "EventItemTitle": "Matter B — Special permit application"},
+]
+
+
+def test_enrich_with_agenda_populates_extras_and_summary(monkeypatch):
+    pytest.importorskip("httpx")
+    import ingest.sources.nyc.legistar as _leg
+
+    monkeypatch.setattr(_leg, "_fetch_event_items", lambda client, event_id: SAMPLE_EVENT_ITEMS)
+    ev = _event_to_civic(SAMPLE_LU_EVENT)  # source_record_id = "event:73601"
+    enriched = _leg.enrich_with_agenda(ev)
+    assert enriched.extras["agenda_items"] == [
+        "Matter A — Rezoning 123 Main St",
+        "Matter B — Special permit application",
+    ]
+    assert "Matter A" in enriched.summary
+    assert "Agenda:" in enriched.summary
+
+
+def test_enrich_with_agenda_returns_copy_not_mutation(monkeypatch):
+    pytest.importorskip("httpx")
+    import ingest.sources.nyc.legistar as _leg
+
+    monkeypatch.setattr(_leg, "_fetch_event_items", lambda client, event_id: SAMPLE_EVENT_ITEMS)
+    ev = _event_to_civic(SAMPLE_LU_EVENT)
+    original_summary = ev.summary
+    enriched = _leg.enrich_with_agenda(ev)
+    assert ev.summary == original_summary  # original unchanged
+    assert enriched is not ev  # different object
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# B2 — discover_stated_meeting_votes
+# ══════════════════════════════════════════════════════════════════════════════
+
+SAMPLE_EVENT_ITEM_HOUSING = {
+    "EventItemId": 201,
+    "EventItemTitle": "Int 1234 — Affordable housing tenant protections",
+    "EventItemPassedFlagName": "Pass",
+    "EventItemTally": "45-4",
+    "EventItemMatterTypeName": "Introduction",
+}
+SAMPLE_EVENT_ITEM_OTHER = {
+    "EventItemId": 202,
+    "EventItemTitle": "Resolution recognizing National Pizza Day",
+    "EventItemPassedFlagName": "Pass",
+    "EventItemTally": "49-0",
+    "EventItemMatterTypeName": "Resolution",
+}
+SAMPLE_VOTES = [
+    {"VotePersonName": "Rivera", "VoteValueName": "Affirmative"},
+    {"VotePersonName": "Powers", "VoteValueName": "Affirmative"},
+    {"VotePersonName": "Abreu", "VoteValueName": "Negative"},
+]
+
+
+def test_discover_stated_meeting_votes_filters_keywords_and_emits_events(monkeypatch):
+    pytest.importorskip("httpx")
+    import ingest.sources.nyc.legistar as _leg
+
+    monkeypatch.setattr(
+        _leg,
+        "_fetch_event_items",
+        lambda client, event_id: [SAMPLE_EVENT_ITEM_HOUSING, SAMPLE_EVENT_ITEM_OTHER],
+    )
+    original_get_page = _leg._get_page
+
+    def mock_get_page(client, path, params):
+        if "Votes" in path:
+            return SAMPLE_VOTES
+        return original_get_page(client, path, params)
+
+    monkeypatch.setattr(_leg, "_get_page", mock_get_page)
+
+    results = _leg.discover_stated_meeting_votes(73601)
+    # Only the housing item matches keywords; the pizza resolution does not.
+    assert len(results) == 1
+    ev = results[0]
+    assert ev.action_type == "council_vote"
+    assert ev.source_record_id == "item:201"
+    assert ev.extras["roll_call"] == {
+        "Rivera": "Affirmative",
+        "Powers": "Affirmative",
+        "Abreu": "Negative",
+    }
+    assert ev.status == RecordStatus.ACCEPTED
+
+
+def test_discover_stated_meeting_votes_skips_items_with_no_votes(monkeypatch):
+    pytest.importorskip("httpx")
+    import ingest.sources.nyc.legistar as _leg
+
+    monkeypatch.setattr(
+        _leg,
+        "_fetch_event_items",
+        lambda client, event_id: [SAMPLE_EVENT_ITEM_HOUSING],
+    )
+    monkeypatch.setattr(_leg, "_get_page", lambda client, path, params: [])  # no votes
+    results = _leg.discover_stated_meeting_votes(73601)
+    assert results == []

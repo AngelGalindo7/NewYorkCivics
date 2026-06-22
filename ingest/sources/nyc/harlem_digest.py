@@ -39,7 +39,7 @@ from ingest.sources.nyc.dob_hpd import (
     discover_displacement_signals,
     iter_feed,
 )
-from ingest.sources.nyc.legistar import discover_cd_hearings
+from ingest.sources.nyc.legistar import discover_cd_hearings, enrich_with_agenda
 from ingest.sources.nyc.service_requests import discover_service_requests
 from ingest.sources.nyc.zap_api import _zap_project_to_event, iter_zap_events
 
@@ -68,6 +68,7 @@ SAMPLE_SUBSCRIBER = {
     "longitude": -73.9410,
     "zip": "10029",
     "community_district": "111",
+    "council_member": "Salaam",
 }
 
 _RECENT_PERMITS = (
@@ -88,6 +89,8 @@ def gather_live_events(
     include_cb_agenda: bool = False,
     include_ulurp_packet: bool = False,
     max_pages: int = 20,
+    include_agenda_enrichment: bool = False,
+    include_votes: bool = False,
 ) -> list[CivicEvent]:
     """Pull a bounded slice of recent East Harlem events from the live feeds.
 
@@ -143,7 +146,36 @@ def gather_live_events(
         events += list(iter_zap_events(limit=per_feed))
     if include_legistar:
         # Phase 1 gate: "upcoming hearings in CD X returns correct dates for next 30 days."
-        events += discover_cd_hearings("MN11", days_ahead=legistar_days)
+        legistar_events = discover_cd_hearings("MN11", days_ahead=legistar_days)
+        if include_agenda_enrichment:
+            enriched: list[CivicEvent] = []
+            for ev in legistar_events:
+                try:
+                    enriched.append(enrich_with_agenda(ev))
+                except Exception as exc:  # noqa: BLE001 — fail soft; keep original
+                    log.warning("agenda enrichment skipped for %s (%s)", ev.source_record_id, exc)
+                    enriched.append(ev)
+            legistar_events = enriched
+        if include_votes:
+            from ingest.sources.nyc.legistar import discover_stated_meeting_votes
+
+            vote_events: list[CivicEvent] = []
+            for ev in legistar_events:
+                body = ev.extras.get("body_name", "").lower()
+                if "stated" in body or "city council" in body:
+                    eid_str = ev.source_record_id
+                    if ":" in eid_str:
+                        try:
+                            eid = int(eid_str.split(":")[1])
+                            vote_events += discover_stated_meeting_votes(eid)
+                        except Exception as exc:  # noqa: BLE001 — fail soft
+                            log.warning(
+                                "vote discovery skipped for event %s (%s)",
+                                ev.source_record_id,
+                                exc,
+                            )
+            events += vote_events
+        events += legistar_events
     if include_signal:
         events += list(islice(discover_displacement_signals(), signals))
     # Enrichments are additive context: a fetch failure on a supplementary feed must never
@@ -412,7 +444,13 @@ def run() -> None:
 
     events, is_live = gather_events()
     matched = match_subscriber(SAMPLE_SUBSCRIBER, events)
-    digest = build_digest(SAMPLE_SUBSCRIBER, matched, asof=datetime.now(UTC).date())
+    council_member: str | None = SAMPLE_SUBSCRIBER.get("council_member")  # type: ignore[assignment]
+    digest = build_digest(
+        SAMPLE_SUBSCRIBER,
+        matched,
+        asof=datetime.now(UTC).date(),
+        subscriber_council_member=council_member,
+    )
 
     print(f"\n=== Harlem digest demo ({'LIVE data' if is_live else 'SAMPLE data (offline)'}) ===")
     print(f"Subject: {digest['subject']}")
@@ -452,6 +490,7 @@ def run() -> None:
                 "CB11 must hold a public hearing on this application."
                 " To comment, call CB11 at 212-831-8929."
             ),
+            subscriber_council_member=council_member,
         )
     )
 
