@@ -329,6 +329,7 @@ def build_digest(
     matched: dict[str, list[CivicEvent]],
     *,
     asof: date | None = None,
+    subscriber_council_member: str | None = None,
 ) -> dict[str, Any]:
     """Assemble a review-ready digest for one subscriber.
 
@@ -446,6 +447,7 @@ def build_digest(
         "subscriber_email": subscriber.get("email"),
         "area": subscriber.get("address"),
         "asof": asof.isoformat(),
+        "subscriber_council_member": subscriber_council_member,
         "stats_line": stats_line,
         "lead_items": lead_items,
         "lead_ids": [it["source_record_id"] for it in lead_items],
@@ -496,6 +498,7 @@ def _render_item(
     *,
     expand: Callable[[str], str] | None = None,
     hearing_guidance: str | None = None,
+    subscriber_council_member: str | None = None,
 ) -> None:
     _e = expand or (lambda t: t)
     tag = " **[needs verification]**" if item["needs_verification"] else ""
@@ -509,6 +512,17 @@ def _render_item(
         links = " · ".join(f"[{c['label']}]({c['url']})" for c in item["citations"])
         prefix = "Verify" if not item["needs_verification"] else "Check the sources"
         out.append(f"- {prefix}: {links}")
+    if item.get("action_type") == "council_vote" and item.get("extras", {}).get("roll_call"):
+        roll_call: dict[str, str] = item["extras"]["roll_call"]
+        member = subscriber_council_member
+        lines: list[str] = []
+        if member and member in roll_call:
+            lines.append(f"- **Council Member {member} voted {roll_call[member]}**")
+        for name, vote in roll_call.items():
+            if member and name == member:
+                continue
+            lines.append(f"- Council Member {name} voted {vote}")
+        out.extend(lines)
     if (
         hearing_guidance
         and "hearing" in (item.get("action_type") or "")
@@ -529,6 +543,7 @@ def _render_lead_item(
     *,
     expand: Callable[[str], str] | None = None,
     hearing_guidance: str | None = None,
+    subscriber_council_member: str | None = None,
 ) -> None:
     """One compact entry in the 'Act on this' lead: title, when, and the verify line."""
     _e = expand or (lambda t: t)
@@ -557,6 +572,7 @@ def render_markdown(
     *,
     glossary: dict[str, str] | None = None,
     hearing_guidance: str | None = None,
+    subscriber_council_member: str | None = None,
 ) -> str:
     """Render the digest into the plain-English, verifiable email body (Markdown)."""
     # Acronym expansion: track which keys have already been expanded (first-use only)
@@ -603,7 +619,14 @@ def render_markdown(
         out.append("## Act on this")
         out.append("")
         for item in lead:
-            _render_lead_item(item, asof, out, expand=_expand, hearing_guidance=hearing_guidance)
+            _render_lead_item(
+                item,
+                asof,
+                out,
+                expand=_expand,
+                hearing_guidance=hearing_guidance,
+                subscriber_council_member=subscriber_council_member,
+            )
 
     # "Deadline passed": recently lapsed items — listed so the reader knows what
     # closed, without implying an open action window.
@@ -615,7 +638,12 @@ def render_markdown(
         )
         out.append("")
         for item in overdue:
-            _render_item(item, out, expand=_expand)
+            _render_item(
+                item,
+                out,
+                expand=_expand,
+                subscriber_council_member=subscriber_council_member,
+            )
 
     # "Near you": the proximity-banded, building-threaded feed. Items already shown
     # in the "Act on this" lead are skipped here to avoid showing the same event twice.
@@ -637,7 +665,13 @@ def render_markdown(
                 out.append(note)
                 out.append("")
             for item in visible:
-                _render_item(item, out, expand=_expand, hearing_guidance=hearing_guidance)
+                _render_item(
+                    item,
+                    out,
+                    expand=_expand,
+                    hearing_guidance=hearing_guidance,
+                    subscriber_council_member=subscriber_council_member,
+                )
 
     # "Later": items with a still-open action window more than LEAD_MAX_DAYS out —
     # they matter but aren't urgent enough to headline this week's digest.
@@ -647,7 +681,14 @@ def render_markdown(
         out.append(f"_These items have open action windows more than {LEAD_MAX_DAYS} days out._")
         out.append("")
         for item in later:
-            _render_lead_item(item, asof, out, expand=_expand, hearing_guidance=hearing_guidance)
+            _render_lead_item(
+                item,
+                asof,
+                out,
+                expand=_expand,
+                hearing_guidance=hearing_guidance,
+                subscriber_council_member=subscriber_council_member,
+            )
 
     # "Happened this week": events that occurred in the past 7 days with no open
     # action window — context only, not an invitation to act.
@@ -660,7 +701,13 @@ def render_markdown(
         )
         out.append("")
         for item in recent:
-            _render_item(item, out, expand=_expand, hearing_guidance=hearing_guidance)
+            _render_item(
+                item,
+                out,
+                expand=_expand,
+                hearing_guidance=hearing_guidance,
+                subscriber_council_member=subscriber_council_member,
+            )
 
     if digest["footnotes"]:
         out.append("---")

@@ -697,3 +697,55 @@ def test_deadline_passed_section_appears_and_lead_excludes_overdue():
     assert "## Deadline passed" in body
     assert "Recently expired permit application" in body.split("## Deadline passed")[1]
     assert "Act on this" not in body  # no open action windows -> no lead section
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# B3 — council vote roll call rendering
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+def _council_vote_event(record_id: str, roll_call: dict[str, str]):
+    from ingest.extract.schemas import Citation, CivicEvent, RecordStatus
+
+    return CivicEvent(
+        source_id="test_src",
+        source_record_id=record_id,
+        bbl=str(SAMPLE_SUBSCRIBER["bbl"]),
+        action_type="council_vote",
+        title="Council vote on affordable housing bill",
+        summary="Roll-call vote recorded.",
+        address=str(SAMPLE_SUBSCRIBER["address"]),
+        confidence=1.0,
+        status=RecordStatus.ACCEPTED,
+        extras={"roll_call": roll_call},
+        citations=[
+            Citation(
+                kind="data_source",
+                verifies="exact_record",
+                label="NYC Council Roll Call",
+                url="https://example.com/vote/1",
+            )
+        ],
+    )
+
+
+def test_council_vote_renders_roll_call_in_item():
+    roll = {"Rivera": "Affirmative", "Powers": "Affirmative", "Salaam": "Negative"}
+    ev = _council_vote_event("VOTE-1", roll)
+    matched = match_subscriber(SAMPLE_SUBSCRIBER, [ev])
+    digest = build_digest(SAMPLE_SUBSCRIBER, matched, asof=ASOF, subscriber_council_member="Salaam")
+    body = render_markdown(digest, subscriber_council_member="Salaam")
+    assert "Council Member Rivera voted Affirmative" in body
+    assert "Council Member Salaam voted Negative" in body
+
+
+def test_subscriber_council_member_vote_rendered_first_and_bold():
+    roll = {"Rivera": "Affirmative", "Salaam": "Negative"}
+    ev = _council_vote_event("VOTE-2", roll)
+    matched = match_subscriber(SAMPLE_SUBSCRIBER, [ev])
+    digest = build_digest(SAMPLE_SUBSCRIBER, matched, asof=ASOF, subscriber_council_member="Salaam")
+    body = render_markdown(digest, subscriber_council_member="Salaam")
+    salaam_pos = body.index("Salaam")
+    rivera_pos = body.index("Rivera")
+    assert salaam_pos < rivera_pos  # subscriber's member appears first
+    assert "**Council Member Salaam voted Negative**" in body  # bolded
