@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import re
 import textwrap
+from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
@@ -26,15 +27,17 @@ FIXTURE_PATH = Path(__file__).parent / "fixtures" / "cb11_agenda.html"
 # ── import-safety (runs in CI with only pydantic) ─────────────────────────────
 
 
-def test_module_imports_clean():
-    # Confirmed by the import at the top of this file; no assertion needed.
+def test_source_id_constant():
     assert SOURCE_ID == "nyc_cb_mn11"
 
 
-def test_discover_agendas_returns_list():
-    # discover_agendas() must return a list (possibly empty) and never raise.
+def test_discover_agendas_returns_list_without_network(monkeypatch):
+    # When httpx is absent, discover_agendas() must return [] and never raise.
+    import ingest.sources.nyc.cb_agenda as mod
+
+    monkeypatch.setattr(mod, "httpx", None)
     result = discover_agendas(None)
-    assert isinstance(result, list)
+    assert result == []
 
 
 def test_discover_agendas_unknown_board_returns_empty():
@@ -78,12 +81,18 @@ def test_parse_mm_dd_yyyy_invalid():
 
 # ── CSV parser tests ──────────────────────────────────────────────────────────
 
-_SAMPLE_CSV = textwrap.dedent("""\
+_d = date.today()
+_FMT = "%m/%d/%Y"
+_DATE_7D = (_d - timedelta(days=7)).strftime(_FMT)
+_DATE_12D = (_d - timedelta(days=12)).strftime(_FMT)
+_DATE_100D = (_d - timedelta(days=100)).strftime(_FMT)
+
+_SAMPLE_CSV = textwrap.dedent(f"""\
     Name,Date,Location,Register to Attend,Agenda,Minutes,Recording,Presentations
-    Full Board,6/16/2026,via Video Conference,https://zoom.example/,Full Board Agenda 6-16-26.pdf (https://v5.airtableusercontent.com/fake/agenda1.pdf),,https://youtu.be/fake,
-    Full Board,3/17/2026,via Video Conference,https://zoom.example/,Full Board Agenda 3-17-26.pdf (https://v5.airtableusercontent.com/fake/agenda2.pdf),,https://youtu.be/fake,
-    Land Use,6/11/2026,via Video Conference,https://zoom.example/,Land Use Cmte Agenda 6-11-26.pdf (https://v5.airtableusercontent.com/fake/agenda3.pdf),,https://youtu.be/fake,
-    Full Board,7/18/2019,1664 Park Avenue,,,,,
+    Full Board,{_DATE_7D},via Video Conference,https://zoom.example/,Full Board Agenda.pdf (https://v5.airtableusercontent.com/fake/agenda1.pdf),,https://youtu.be/fake,
+    Full Board,{_DATE_100D},via Video Conference,https://zoom.example/,Full Board Agenda.pdf (https://v5.airtableusercontent.com/fake/agenda2.pdf),,https://youtu.be/fake,
+    Land Use,{_DATE_12D},via Video Conference,https://zoom.example/,Land Use Cmte Agenda.pdf (https://v5.airtableusercontent.com/fake/agenda3.pdf),,https://youtu.be/fake,
+    Full Board,7/18/2019,1664 Park Avenue,,Full Board Agenda 7-18-19.pdf (https://v5.airtableusercontent.com/fake/old_agenda.pdf),,,
     New Year's Day - CLOSED,1/1/2026,,,,,,
 """)
 
@@ -94,10 +103,11 @@ def test_parse_csv_rows_returns_recent_agendarefs():
     assert all(r.board == "MN11" for r in refs)
 
 
-def test_parse_csv_rows_filters_old_rows():
-    # 2019 row must be excluded regardless of lookback window
-    refs = _parse_csv_rows(_SAMPLE_CSV, lookback_days=9999)
-    assert not any("2019" in (r.meeting_date or "") for r in refs)
+def test_parse_csv_rows_date_filter_excludes_old_meetings():
+    refs = _parse_csv_rows(_SAMPLE_CSV, lookback_days=365)
+    urls = {r.url for r in refs}
+    assert "https://v5.airtableusercontent.com/fake/old_agenda.pdf" not in urls
+    assert "https://v5.airtableusercontent.com/fake/agenda1.pdf" in urls
 
 
 def test_parse_csv_rows_urls_are_absolute():

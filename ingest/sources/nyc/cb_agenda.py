@@ -107,9 +107,8 @@ def _parse_mm_dd_yyyy(s: str) -> str | None:
 def _parse_csv_rows(csv_text: str, lookback_days: int = _LOOKBACK_DAYS) -> list[AgendaRef]:
     """Parse an Airtable CSV export into AgendaRefs.
 
-    Filters to meetings within the past ``lookback_days`` days that have at
-    least one PDF in the Agenda column.  Exported URLs are long-lived Airtable
-    CDN tokens (~1 year), so they survive the discover→fetch round-trip.
+    Exported URLs are long-lived Airtable CDN tokens (~1 year), so they
+    survive the discover→fetch round-trip.
 
     Exposed for offline testing without network.
     """
@@ -117,9 +116,8 @@ def _parse_csv_rows(csv_text: str, lookback_days: int = _LOOKBACK_DAYS) -> list[
     refs: list[AgendaRef] = []
 
     reader = csv.DictReader(io.StringIO(csv_text))
-    cleaned: dict[str, str] = {}
     for row in reader:
-        # Normalise keys: strip leading BOM/whitespace on first key
+        # Strip BOM that Excel/Windows prepends to the first column name.
         cleaned = {k.lstrip("﻿").strip(): v for k, v in row.items()}
         date_iso = _parse_mm_dd_yyyy(cleaned.get("Date", ""))
         if not date_iso or date_iso < cutoff:
@@ -174,7 +172,11 @@ def discover_agendas(board: str | None = None) -> list[AgendaRef]:
                 log.warning("Airtable requestId/accessPolicy missing from embed page")
                 return []
             pl_m = _AT_PAGE_LOAD_RE.search(embed_resp.text)
-            page_load_id = pl_m.group(1) if pl_m else ""
+            if pl_m:
+                page_load_id = pl_m.group(1)
+            else:
+                log.warning("Airtable page-load ID not found in embed JS; CSV request may fail")
+                page_load_id = ""
 
             # Step 3: CSV export — no session cookies required; signed attachment
             # URLs in the response are valid for ~1 year.
