@@ -575,6 +575,146 @@ def discover_stated_meeting_votes(event_id: int) -> list[CivicEvent]:
     return results
 
 
+def find_matter_by_ulurp(ulurp_number: str) -> dict[str, Any] | None:
+    """Return the first Legistar Matter whose title contains ``ulurp_number``, or None.
+
+    One-shot lookup against GET /Matters with an OData contains() filter.
+    Returns None on no match or on HTTP failure.
+
+    Raises:
+        RuntimeError: if httpx is not installed.
+    """
+    if httpx is None:
+        raise RuntimeError("httpx is not installed; install it with: pip install httpx")
+    params = _request_params(
+        get_settings().legistar_token,
+        **{
+            "$filter": f"contains(MatterTitle,'{ulurp_number}')",
+            "$top": 5,
+            "$select": "MatterId,MatterTitle,MatterStatusName,MatterTypeId",
+        },
+    )
+    with httpx.Client(timeout=_TIMEOUT, headers=_HEADERS) as client:
+        try:
+            resp = client.get(f"{_BASE}/Matters", params=params)
+            resp.raise_for_status()
+        except Exception as exc:  # noqa: BLE001
+            log.warning("find_matter_by_ulurp(%r) HTTP error: %s", ulurp_number, exc)
+            return None
+    results: list[dict[str, Any]] = resp.json()
+    return results[0] if results else None
+
+
+def iter_cm_vote_history(
+    since: date,
+    keywords: frozenset[str] = _VOTE_MATTER_KEYWORDS,
+    limit: int = 50,
+) -> Iterator[CivicEvent]:
+    """Yield council_vote CivicEvents for housing/land-use matters voted on since ``since``.
+
+    Uses the matter-first path: /Matters (keyword filter) -> /Matters/{id}/Histories
+    (find vote actions on or after ``since``) -> /EventItems/{id}/Votes (roll call).
+    Emits one CivicEvent per voted matter, not per vote cast.
+    Matters with no qualifying vote action in the window are silently skipped.
+
+    Raises:
+        RuntimeError: if httpx is not installed.
+    """
+    if httpx is None:
+        raise RuntimeError("httpx is not installed; install it with: pip install httpx")
+
+    kw_filter = " or ".join(f"contains(MatterTitle,'{kw}')" for kw in sorted(keywords))
+    try:
+        matters = _get_all("/Matters", **{"$filter": kw_filter})
+    except Exception as exc:  # noqa: BLE001
+        log.warning("iter_cm_vote_history: matter fetch failed: %s", exc)
+        return
+
+    emitted = 0
+    seen: set[int] = set()
+    for matter in matters:
+        if emitted >= limit:
+            break
+        matter_id: int | None = matter.get("MatterId")
+        if not matter_id or matter_id in seen:
+            continue
+        seen.add(matter_id)
+
+        matter_title: str = matter.get("MatterTitle") or ""
+        matter_status: str = matter.get("MatterStatusName") or ""
+
+        try:
+            histories = _get_all(f"/Matters/{matter_id}/Histories")
+        except Exception as exc:  # noqa: BLE001
+            log.warning("matter %s history fetch failed: %s", matter_id, exc)
+            continue
+
+        vote_row: dict[str, Any] | None = None
+        for h in histories:
+            action_name: str = (h.get("MatterHistoryActionName") or "").lower()
+            action_date = _parse_event_date(h.get("MatterHistoryActionDate"))
+            if action_date is None or action_date < since:
+                continue
+            if any(kw in action_name for kw in ("pass", "fail", "approv", "adopt")):
+                vote_row = h
+                break
+
+        if vote_row is None:
+            continue
+
+        item_id: int | None = vote_row.get("MatterHistoryEventItemId")
+        if not item_id:
+            continue
+
+        action_date = _parse_event_date(vote_row.get("MatterHistoryActionDate"))
+        action_name_display: str = vote_row.get("MatterHistoryActionName") or ""
+
+        try:
+            votes = _get_all(f"/EventItems/{item_id}/Votes")
+        except Exception as exc:  # noqa: BLE001
+            log.warning("votes fetch failed for event item %s: %s", item_id, exc)
+            continue
+
+        if not votes:
+            continue
+
+        roll_call = {v["VotePersonName"]: v["VoteValueName"] for v in votes}
+        summary = (
+            f"Council vote on '{matter_title}': {action_name_display}"
+            f". {len(roll_call)} member(s) recorded."
+        )
+
+        yield CivicEvent(
+            source_id=SOURCE_ID,
+            source_record_id=f"matter:{matter_id}",
+            project_thread_id=f"legistar:matter:{matter_id}",
+            action_type="council_vote",
+            title=matter_title,
+            summary=summary,
+            event_date=action_date,
+            confidence=1.0,
+            status=RecordStatus.ACCEPTED,
+            citations=[
+                Citation(
+                    kind="data_source",
+                    verifies="exact_record",
+                    label=f"NYC Council Matter #{matter_id}",
+                    url=(f"https://legistar.council.nyc.gov/LegislationDetail.aspx?ID={matter_id}"),
+                    retrieved_at=datetime.now(UTC),
+                )
+            ],
+            extras={
+                "roll_call": roll_call,
+                "matter_id": matter_id,
+                "event_item_id": item_id,
+                "matter_title": matter_title,
+                "matter_status": matter_status,
+            },
+            extracted_at=datetime.now(UTC),
+        )
+        emitted += 1
+
+
 def fetch_roll_call(matter_id: str) -> CivicEvent:
     """Fetch the roll-call vote breakdown for one matter.
 

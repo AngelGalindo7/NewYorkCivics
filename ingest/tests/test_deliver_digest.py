@@ -57,7 +57,11 @@ def test_every_item_carries_verifiable_citations(digest):
 
 
 def test_overdue_hpd_deadline_surfaces_as_attention(digest):
-    hpd = next(it for it in _all_items(digest) if it["title"] == "HPD Class C violation")
+    hpd = next(
+        it
+        for it in _all_items(digest)
+        if it["title"] == "Immediately hazardous violation (Class C) — HPD"
+    )
     assert hpd["deadline_note"] is not None
     assert "overdue" in hpd["deadline_note"]
     assert digest["needs_attention_count"] >= 1
@@ -749,3 +753,32 @@ def test_subscriber_council_member_vote_rendered_first_and_bold():
     rivera_pos = body.index("Rivera")
     assert salaam_pos < rivera_pos  # subscriber's member appears first
     assert "**Council Member Salaam voted Negative**" in body  # bolded
+
+
+def test_hpd_title_uses_plain_english(digest):
+    body = render_markdown(digest)
+    assert "immediately hazardous" in body.lower()
+    assert "Class C" in body
+    assert "HPD Class C violation" not in body
+
+
+def test_dob_permit_title_plain_english_leads():
+    # Past permits without a deadline are filtered from the rendered body; check the
+    # title directly on the source event before the filter runs.
+    from ingest.sources.nyc.harlem_digest import _sample_events
+
+    permit = next(e for e in _sample_events() if e.action_type == "permit" and e.extras.get("job_type") == "A1")
+    lower = (permit.title or "").lower()
+    assert "major alteration" in lower
+    assert lower.index("major alteration") < lower.index("(dob a1)")
+
+
+def test_zap_summary_does_not_contain_bare_ulurp_label(digest):
+    body = render_markdown(digest)
+    assert "ULURP:" not in body
+
+
+def test_stats_line_uses_walkable_area_framing(digest):
+    line = digest["stats_line"]
+    assert line is not None
+    assert line.startswith("This week within a 5-minute walk:")

@@ -53,6 +53,7 @@ class Settings:
 
     # --- External APIs ---
     legistar_token: str | None = None  # LEGISTAR_TOKEN — optional (vendor-only; scrape fallback)
+    airtable_token: str | None = None  # AIRTABLE_TOKEN — CB11 meetings calendar (Airtable base)
 
     # --- Dev overrides (NEVER set in production) ---
     # Bypass the Rule 9 human-review-then-send gate so the full digest pipeline
@@ -98,6 +99,7 @@ def get_settings() -> Settings:
         email_from=_opt("EMAIL_FROM"),
         resend_api_key=_opt("RESEND_API_KEY"),
         legistar_token=_opt("LEGISTAR_TOKEN"),
+        airtable_token=_opt("AIRTABLE_TOKEN"),
         bypass_human_review=os.environ.get("BYPASS_HUMAN_REVIEW", "").lower()
         in ("1", "true", "yes"),
         langfuse_public_key=_opt("LANGFUSE_PUBLIC_KEY"),

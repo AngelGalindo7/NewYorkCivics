@@ -19,17 +19,18 @@ Run:  python -m ingest.sources.nyc.harlem_digest
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from itertools import islice
+from typing import Any
 
 from ingest.deliver.digest import build_digest, render_markdown
 from ingest.deliver.match import match_subscriber
 from ingest.deliver.send import send_digest
 from ingest.extract import extractor
-from ingest.extract.schemas import CivicEvent
+from ingest.extract.schemas import Citation, CivicEvent
 from ingest.observability import get_logger
 from ingest.parse import ParsedDoc, pdf_text
-from ingest.sources.nyc import cb_agenda, ulurp_packet
+from ingest.sources.nyc import cb_agenda, corroborate, ulurp_packet
 from ingest.sources.nyc.building_grades import discover_energy_grades
 from ingest.sources.nyc.dob_hpd import (
     DOB_PERMITS_FEED,
@@ -39,7 +40,11 @@ from ingest.sources.nyc.dob_hpd import (
     discover_displacement_signals,
     iter_feed,
 )
-from ingest.sources.nyc.legistar import discover_cd_hearings, enrich_with_agenda
+from ingest.sources.nyc.legistar import (
+    discover_cd_hearings,
+    enrich_with_agenda,
+    find_matter_by_ulurp,
+)
 from ingest.sources.nyc.service_requests import discover_service_requests
 from ingest.sources.nyc.zap_api import _zap_project_to_event, iter_zap_events
 
@@ -76,6 +81,83 @@ _RECENT_PERMITS = (
 )
 
 
+def _link_zap_to_legistar(events: list[CivicEvent]) -> list[CivicEvent]:
+    """Enrich ZAP events that carry a ULURP number with their Legistar matter ID.
+
+    When a match is found, appends the Legistar matter to project_thread_id so
+    downstream stages can join the two sources on one project story. For CPC-stage
+    projects, also queries GET /Matters/{id}/Histories for a scheduled hearing date
+    and overrides the approximated deadline if one is found.
+
+    Fails soft: a lookup failure never drops the ZAP event.
+    """
+    from ingest.sources.nyc.legistar import _get_all, _parse_event_date
+
+    result: list[CivicEvent] = []
+    for ev in events:
+        if ev.source_id != "nyc_zap" or ev.ulurp_number is None:
+            result.append(ev)
+            continue
+        try:
+            matter = find_matter_by_ulurp(ev.ulurp_number)
+        except Exception as exc:  # noqa: BLE001
+            log.warning(
+                "ULURP->matter lookup failed for %s (%s); keeping original event",
+                ev.ulurp_number,
+                exc,
+            )
+            result.append(ev)
+            continue
+        if matter is None:
+            result.append(ev)
+            continue
+
+        matter_id: int = matter["MatterId"]
+        project_id: str = ev.extras.get("project_id") or ev.source_record_id
+        new_thread_id = f"zap:{project_id}|legistar:matter:{matter_id}"
+        updates: dict[str, Any] = {"project_thread_id": new_thread_id}
+
+        # For CPC-stage projects, try to replace the approximated deadline with a
+        # confirmed Legistar hearing date.
+        if ev.extras.get("cpc_stage") == "cpc_review":
+            try:
+                histories = _get_all(f"/Matters/{matter_id}/Histories")
+                for h in histories:
+                    action_name = (h.get("MatterHistoryActionName") or "").lower()
+                    if "hearing" in action_name:
+                        hearing_date = _parse_event_date(h.get("MatterHistoryActionDate"))
+                        if hearing_date is not None:
+                            updates["deadline"] = hearing_date
+                            updates["citations"] = [
+                                *ev.citations,
+                                Citation(
+                                    kind="data_source",
+                                    verifies="corroborating_record",
+                                    label=f"NYC Council Matter #{matter_id} (Legistar)",
+                                    url=(
+                                        "https://legistar.council.nyc.gov/"
+                                        f"LegislationDetail.aspx?ID={matter_id}"
+                                    ),
+                                    retrieved_at=datetime.now(UTC),
+                                ),
+                            ]
+                            updates["extras"] = {
+                                **ev.extras,
+                                "cpc_stage": "cpc_hearing_scheduled",
+                                "legistar_matter_id": matter_id,
+                            }
+                            break
+            except Exception as exc:  # noqa: BLE001
+                log.warning(
+                    "CPC hearing date lookup failed for matter %s (%s); keeping approximation",
+                    matter_id,
+                    exc,
+                )
+
+        result.append(ev.model_copy(update=updates))
+    return result
+
+
 def gather_live_events(
     *,
     per_feed: int = 6,
@@ -91,6 +173,8 @@ def gather_live_events(
     max_pages: int = 20,
     include_agenda_enrichment: bool = False,
     include_votes: bool = False,
+    include_vote_history: bool = False,
+    vote_history_since: date | None = None,
 ) -> list[CivicEvent]:
     """Pull a bounded slice of recent East Harlem events from the live feeds.
 
@@ -128,6 +212,10 @@ def gather_live_events(
 
     ``max_pages`` (default 20) caps the pages of each ULURP packet that reach the LLM
     extractor. Has no effect on the agenda leg (agendas are small documents).
+
+    ``include_vote_history`` (off by default) does a matter-first historical scan of
+    Legistar for housing/land-use votes since ``vote_history_since`` (default 90 days
+    back). This is a full Legistar scan and is heavy — keep it off in the default path.
     """
     events: list[CivicEvent] = []
     events += list(
@@ -144,6 +232,7 @@ def gather_live_events(
     )
     if include_zap:
         events += list(iter_zap_events(limit=per_feed))
+    events = _link_zap_to_legistar(events)
     if include_legistar:
         # Phase 1 gate: "upcoming hearings in CD X returns correct dates for next 30 days."
         legistar_events = discover_cd_hearings("MN11", days_ahead=legistar_days)
@@ -176,6 +265,14 @@ def gather_live_events(
                             )
             events += vote_events
         events += legistar_events
+    if include_vote_history:
+        from ingest.sources.nyc.legistar import iter_cm_vote_history
+
+        history_since = vote_history_since or (datetime.now(UTC).date() - timedelta(days=90))
+        try:
+            events += list(iter_cm_vote_history(history_since))
+        except Exception as exc:  # noqa: BLE001
+            log.warning("vote history scan skipped (%s)", exc)
     if include_signal:
         events += list(islice(discover_displacement_signals(), signals))
     # Enrichments are additive context: a fetch failure on a supplementary feed must never
@@ -247,6 +344,8 @@ def gather_live_events(
                     )
         except Exception as exc:
             log.warning("ulurp_packet discovery skipped (%s)", exc)
+    zap_events = [e for e in events if e.source_id == "nyc_zap"]
+    events = corroborate.corroborate_against_zap(events, zap_events)
     return events
 
 
@@ -424,7 +523,12 @@ def gather_events() -> tuple[list[CivicEvent], bool]:
         # Energy-grade and severe-311 enrichments are on: both are structured, row-cited,
         # ACCEPTED context bounded to the surfaced buildings, and fail soft, so they are safe
         # in the live path.
-        events = gather_live_events(include_grades=True, include_311=True)
+        events = gather_live_events(
+            include_grades=True,
+            include_311=True,
+            include_cb_agenda=True,
+            include_ulurp_packet=True,
+        )
         if events:
             return events, True
         log.warning("live feeds returned no events; using sample data")

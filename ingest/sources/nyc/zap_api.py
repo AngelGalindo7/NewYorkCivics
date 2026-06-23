@@ -65,7 +65,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Iterator, Mapping
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 from ingest.config import get_settings
@@ -164,10 +164,10 @@ def _address(*parts: str | None) -> str | None:
 
 
 def _first_ulurp(raw: str | None) -> str | None:
-    """First ULURP number from a comma- or pipe-separated string."""
+    """First ULURP number from a comma-, pipe-, or semicolon-separated string."""
     if not raw:
         return None
-    first = raw.replace("|", ",").split(",")[0].strip()
+    first = raw.replace("|", ",").replace(";", ",").split(",")[0].strip()
     return first or None
 
 
@@ -257,6 +257,15 @@ def _zap_project_to_event(rec: Mapping[str, Any], bbl_value: str | None = None) 
     )
     deadline = _parse_iso(str(hearing_raw) if hearing_raw is not None else None)
 
+    # When a project is at the CPC stage with no explicit hearing date, approximate
+    # the outer bound of the 60-day CPC review window from the certified_referred date.
+    # harlem_digest._link_zap_to_legistar overrides this with a confirmed Legistar
+    # hearing date if one is found.
+    cpc_stage: str | None = None
+    if public_status == "In Public Review" and event_date is not None and deadline is None:
+        deadline = event_date + timedelta(days=60)
+        cpc_stage = "cpc_review"
+
     ulurp_first = _first_ulurp(ulurp_raw)
 
     # Title: lead action + first ULURP + current public status.
@@ -273,8 +282,9 @@ def _zap_project_to_event(rec: Mapping[str, Any], bbl_value: str | None = None) 
         summary_parts.append(f"Applicant: {applicant}.")
     if public_status:
         summary_parts.append(f"Status: {public_status}.")
-    if ulurp_raw:
-        summary_parts.append(f"ULURP: {ulurp_raw}.")
+    # Only append the application number to the summary if it's not already in the title.
+    if ulurp_raw and ulurp_raw not in title:
+        summary_parts.append(f"Land-use review application number: {ulurp_raw}.")
     summary = " ".join(summary_parts)
 
     return CivicEvent(
@@ -311,6 +321,7 @@ def _zap_project_to_event(rec: Mapping[str, Any], bbl_value: str | None = None) 
             "borough": borough or None,
             "certified_referred": rec.get("certified_referred"),
             "hearing_date": hearing_raw,
+            "cpc_stage": cpc_stage,
         },
         extracted_at=now,
     )

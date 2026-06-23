@@ -670,3 +670,220 @@ def test_discover_stated_meeting_votes_skips_items_with_no_votes(monkeypatch):
     monkeypatch.setattr(_leg, "_get_page", lambda client, path, params: [])  # no votes
     results = _leg.discover_stated_meeting_votes(73601)
     assert results == []
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# find_matter_by_ulurp
+# ══════════════════════════════════════════════════════════════════════════════
+
+SAMPLE_MATTER_RESPONSE = [
+    {
+        "MatterId": 9999,
+        "MatterTitle": "C 240042 ZMM - East Harlem Rezoning",
+        "MatterStatusName": "Adopted",
+        "MatterTypeId": 2,
+    }
+]
+
+
+def test_find_matter_by_ulurp_returns_first_match(monkeypatch):
+    pytest.importorskip("httpx")
+    import ingest.sources.nyc.legistar as _leg
+
+    class _FakeResp:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return SAMPLE_MATTER_RESPONSE
+
+    class _FakeClient:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            pass
+
+        def get(self, url, params=None):
+            assert "Matters" in url
+            assert "C 240042 ZMM" in params.get("$filter", "")
+            return _FakeResp()
+
+    monkeypatch.setattr(_leg.httpx, "Client", lambda **kw: _FakeClient())
+    result = _leg.find_matter_by_ulurp("C 240042 ZMM")
+    assert result is not None
+    assert result["MatterId"] == 9999
+
+
+def test_find_matter_by_ulurp_returns_none_on_empty_response(monkeypatch):
+    pytest.importorskip("httpx")
+    import ingest.sources.nyc.legistar as _leg
+
+    class _FakeResp:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return []
+
+    class _FakeClient:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            pass
+
+        def get(self, url, params=None):
+            return _FakeResp()
+
+    monkeypatch.setattr(_leg.httpx, "Client", lambda **kw: _FakeClient())
+    assert _leg.find_matter_by_ulurp("C 999999 ZMM") is None
+
+
+def test_find_matter_by_ulurp_returns_none_on_http_error(monkeypatch):
+    pytest.importorskip("httpx")
+    import ingest.sources.nyc.legistar as _leg
+
+    class _FakeClient:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            pass
+
+        def get(self, url, params=None):
+            raise _leg._HTTPError("simulated 503")
+
+    monkeypatch.setattr(_leg.httpx, "Client", lambda **kw: _FakeClient())
+    assert _leg.find_matter_by_ulurp("C 240042 ZMM") is None
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# iter_cm_vote_history
+# ══════════════════════════════════════════════════════════════════════════════
+
+SAMPLE_MATTERS = [
+    {
+        "MatterId": 301,
+        "MatterTitle": "Int 2000 — Affordable housing tenant protections",
+        "MatterStatusName": "Adopted",
+    },
+    {
+        "MatterId": 302,
+        "MatterTitle": "Resolution re National Pizza Day",
+        "MatterStatusName": "Adopted",
+    },
+]
+
+SAMPLE_MATTER_HISTORIES = [
+    {
+        "MatterHistoryActionName": "Pass",
+        "MatterHistoryActionDate": "2026-03-01T00:00:00",
+        "MatterHistoryEventItemId": 401,
+    }
+]
+
+SAMPLE_HISTORY_VOTES = [
+    {"VotePersonName": "Rivera", "VoteValueName": "Affirmative"},
+    {"VotePersonName": "Powers", "VoteValueName": "Affirmative"},
+]
+
+
+def test_iter_cm_vote_history_emits_council_vote_events(monkeypatch):
+    pytest.importorskip("httpx")
+    import ingest.sources.nyc.legistar as _leg
+
+    def _mock_get_all(path, **kw):
+        if path == "/Matters":
+            return SAMPLE_MATTERS
+        if "/Histories" in path:
+            return SAMPLE_MATTER_HISTORIES
+        if "/Votes" in path:
+            return SAMPLE_HISTORY_VOTES
+        return []
+
+    monkeypatch.setattr(_leg, "_get_all", _mock_get_all)
+
+    results = list(_leg.iter_cm_vote_history(since=date(2026, 1, 1), limit=10))
+
+    assert len(results) == 2
+    assert all(ev.action_type == "council_vote" for ev in results)
+    assert all(ev.status == RecordStatus.ACCEPTED for ev in results)
+    assert all("roll_call" in ev.extras for ev in results)
+    assert results[0].extras["roll_call"] == {"Rivera": "Affirmative", "Powers": "Affirmative"}
+
+
+def test_iter_cm_vote_history_skips_matters_with_no_vote_in_window(monkeypatch):
+    pytest.importorskip("httpx")
+    import ingest.sources.nyc.legistar as _leg
+
+    old_history = [
+        {
+            "MatterHistoryActionName": "Pass",
+            "MatterHistoryActionDate": "2025-01-01T00:00:00",
+            "MatterHistoryEventItemId": 401,
+        }
+    ]
+
+    def _mock_get_all(path, **kw):
+        if path == "/Matters":
+            return SAMPLE_MATTERS[:1]
+        if "/Histories" in path:
+            return old_history
+        return []
+
+    monkeypatch.setattr(_leg, "_get_all", _mock_get_all)
+
+    results = list(_leg.iter_cm_vote_history(since=date(2026, 1, 1)))
+    assert results == []
+
+
+def test_iter_cm_vote_history_skips_matters_with_no_votes(monkeypatch):
+    pytest.importorskip("httpx")
+    import ingest.sources.nyc.legistar as _leg
+
+    def _mock_get_all(path, **kw):
+        if path == "/Matters":
+            return SAMPLE_MATTERS[:1]
+        if "/Histories" in path:
+            return SAMPLE_MATTER_HISTORIES
+        if "/Votes" in path:
+            return []
+        return []
+
+    monkeypatch.setattr(_leg, "_get_all", _mock_get_all)
+
+    results = list(_leg.iter_cm_vote_history(since=date(2026, 1, 1)))
+    assert results == []
+
+
+def test_iter_cm_vote_history_respects_limit(monkeypatch):
+    pytest.importorskip("httpx")
+    import ingest.sources.nyc.legistar as _leg
+
+    def _mock_get_all(path, **kw):
+        if path == "/Matters":
+            return SAMPLE_MATTERS
+        if "/Histories" in path:
+            return SAMPLE_MATTER_HISTORIES
+        if "/Votes" in path:
+            return SAMPLE_HISTORY_VOTES
+        return []
+
+    monkeypatch.setattr(_leg, "_get_all", _mock_get_all)
+
+    results = list(_leg.iter_cm_vote_history(since=date(2026, 1, 1), limit=1))
+    assert len(results) == 1
+
+
+def test_iter_cm_vote_history_fails_soft_on_matter_fetch_error(monkeypatch):
+    pytest.importorskip("httpx")
+    import ingest.sources.nyc.legistar as _leg
+
+    def _boom(path, **kw):
+        raise _leg._HTTPError("simulated 403")
+
+    monkeypatch.setattr(_leg, "_get_all", _boom)
+
+    results = list(_leg.iter_cm_vote_history(since=date(2026, 1, 1)))
+    assert results == []
