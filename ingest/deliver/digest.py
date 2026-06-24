@@ -606,7 +606,27 @@ def render_markdown(
     action_contacts: dict[str, str] | None = None,
     subscriber_council_member: str | None = None,
 ) -> str:
-    """Render the digest into the plain-English, verifiable email body (Markdown)."""
+    """Render the digest into the plain-English, verifiable email body (Markdown).
+
+    Rendering options (the glossary, hearing guidance, per-category context blurbs and
+    action contacts, and the subscriber's council member) may also ride along inside the
+    digest under ``render_options``. Because they live on the digest dict, they survive
+    whatever the caller does with it — so a digest dumped for human review and sent from a
+    *separate* process still carries its plain-English help text. An explicit keyword
+    argument always overrides the embedded value for that option.
+    """
+    embedded = digest.get("render_options") or {}
+    if glossary is None:
+        glossary = embedded.get("glossary")
+    if hearing_guidance is None:
+        hearing_guidance = embedded.get("hearing_guidance")
+    if action_context is None:
+        action_context = embedded.get("action_context")
+    if action_contacts is None:
+        action_contacts = embedded.get("action_contacts")
+    if subscriber_council_member is None:
+        subscriber_council_member = embedded.get("subscriber_council_member")
+
     # Acronym expansion: track which keys have already been expanded (first-use only)
     # so the same acronym is defined on first appearance, never repeated.
     _expanded: set[str] = set()

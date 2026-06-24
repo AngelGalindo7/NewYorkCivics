@@ -681,6 +681,22 @@ def run() -> None:
         subscriber_council_member=council_member,
     )
 
+    # Attach the NYC plain-English help text to the digest itself so it travels with the
+    # digest through the human-review round-trip (dump -> reviewer process -> send) and the
+    # delivered email keeps its term definitions and "how to respond" prompts. The renderer
+    # reads these from render_options; they are NYC-specific and so live here, not in the
+    # city-agnostic Deliver stage.
+    digest["render_options"] = {
+        "glossary": NYC_ACRONYMS,
+        "action_context": NYC_LAND_USE_CONTEXT,
+        "action_contacts": NYC_ACTION_CONTACTS,
+        "hearing_guidance": (
+            "CB11 must hold a public hearing on this application."
+            " To comment, call CB11 at 212-831-8929."
+        ),
+        "subscriber_council_member": council_member,
+    }
+
     print(f"\n=== Harlem digest demo ({'LIVE data' if is_live else 'SAMPLE data (offline)'}) ===")
     print(f"Subject: {digest['subject']}")
     print(
@@ -711,19 +727,8 @@ def run() -> None:
     path = send_digest(digest, SAMPLE_SUBSCRIBER)
     print(f"\nDigest written to: {path}\n")
     print("----- rendered body -----")
-    print(
-        render_markdown(
-            digest,
-            glossary=NYC_ACRONYMS,
-            action_context=NYC_LAND_USE_CONTEXT,
-            action_contacts=NYC_ACTION_CONTACTS,
-            hearing_guidance=(
-                "CB11 must hold a public hearing on this application."
-                " To comment, call CB11 at 212-831-8929."
-            ),
-            subscriber_council_member=council_member,
-        )
-    )
+    # render_options ride along on the digest, so the preview matches the delivered email.
+    print(render_markdown(digest))
 
 
 if __name__ == "__main__":

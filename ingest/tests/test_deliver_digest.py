@@ -528,6 +528,47 @@ def test_glossary_expands_on_first_use_only():
     assert "(Uniform Land Use Review Procedure" not in body_no_gloss
 
 
+def test_render_options_embedded_in_digest_reach_the_body():
+    # Rendering options carried on the digest under render_options must be honored, so the
+    # plain-English help text reaches a digest rendered in a separate process (the reviewer).
+    from ingest.extract.schemas import Citation, CivicEvent, RecordStatus
+
+    ev = CivicEvent(
+        source_id="test_src",
+        source_record_id="EMBED-1",
+        bbl=str(SAMPLE_SUBSCRIBER["bbl"]),
+        action_type="land_use_hearing",
+        title="ULURP hearing: application review",
+        summary="Community board review under ULURP procedures.",
+        address=str(SAMPLE_SUBSCRIBER["address"]),
+        event_date=ASOF + timedelta(days=7),
+        confidence=1.0,
+        status=RecordStatus.ACCEPTED,
+        citations=[
+            Citation(
+                kind="data_source",
+                verifies="exact_record",
+                label="ULURP record",
+                url="https://example.com/ulurp/EMBED-1",
+            )
+        ],
+    )
+    matched = match_subscriber(SAMPLE_SUBSCRIBER, [ev])
+    digest = build_digest(SAMPLE_SUBSCRIBER, matched, asof=ASOF)
+    digest["render_options"] = {
+        "glossary": {"ULURP": "Uniform Land Use Review Procedure"},
+    }
+
+    # No explicit kwarg: the embedded glossary must still expand the acronym on first use.
+    body = render_markdown(digest)
+    assert "ULURP (Uniform Land Use Review Procedure)" in body
+
+    # An explicit kwarg overrides the embedded value for that option.
+    body_override = render_markdown(digest, glossary={"ULURP": "overridden definition"})
+    assert "ULURP (overridden definition)" in body_override
+    assert "ULURP (Uniform Land Use Review Procedure)" not in body_override
+
+
 def test_corroboration_note_when_permit_and_violation():
     from ingest.deliver.digest import _corroboration_note
 
