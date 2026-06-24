@@ -14,7 +14,11 @@ field (the condo billing lot 7502) and ``bin__`` (the building, 1091648).
 from __future__ import annotations
 
 from ingest.sources.nyc.citations import audit_citation, bis_property, dob_permits_by_bin
-from ingest.sources.nyc.dob_hpd import _dob_permit_to_event, _record_bbl
+from ingest.sources.nyc.dob_hpd import (
+    _dob_permit_to_event,
+    _hpd_violation_to_event,
+    _record_bbl,
+)
 
 SAMPLE_DOB_PERMIT = {
     "permit_si_no": "3986011",
@@ -106,3 +110,29 @@ def test_permit_keeps_row_exact_socrata_link():
     assert "permit_si_no=3986011" in socrata.url
     assert socrata.verifies == "exact_record"
     assert audit_citation(socrata) is None
+
+
+# ── city-agnostic severity flag the Deliver core reads to lead the digest ──────
+
+
+def _violation_record(vclass: str) -> dict:
+    return {
+        "violationid": f"V{vclass}",
+        "class": vclass,
+        "housenumber": "100",
+        "streetname": "EAST 116 STREET",
+        "boroid": "1",
+        "block": "1650",
+        "lot": "30",
+        "inspectiondate": "2026-05-01T00:00:00.000",
+        "originalcorrectbydate": "2026-05-20T00:00:00.000",
+    }
+
+
+def test_hpd_violation_exposes_hazardous_flag_for_class_b_and_c():
+    # Class B/C are HPD's hazardous / immediately-hazardous tiers; the connector exposes a
+    # generic extras['hazardous'] flag so the city-agnostic Deliver core can lead on it
+    # without ever knowing the class code. Class A (non-hazardous) is False.
+    assert _hpd_violation_to_event(_violation_record("C")).extras["hazardous"] is True
+    assert _hpd_violation_to_event(_violation_record("B")).extras["hazardous"] is True
+    assert _hpd_violation_to_event(_violation_record("A")).extras["hazardous"] is False

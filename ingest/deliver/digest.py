@@ -6,10 +6,12 @@ review, and render the verifiable email body. Sending is send.py's job.
 
 The render is a short weekly briefing built for scannability and trust. Top to
 bottom: a personalization line scoped to the subscriber's address; a one-line stats
-hook of whole-number counts; an "Act on this" lead of items a reader can still act
-on (a future deadline or event); the proximity-banded building feed; the honest
-verifiability footer. Forward-looking items lead because a deadline you can still
-meet is the most useful thing in the email.
+hook of whole-number counts; a "Right next to you" lead of buildings carrying a
+confirmed serious violation (a safety fact outranks procedure); an "Act on this" lead
+of items a reader can still act on (a future deadline or event); the proximity-banded
+building feed; the honest verifiability footer. A confirmed hazard near the reader
+leads because it is the most consequential thing in the email; a still-open deadline
+leads the actionable items because it is the most useful.
 
 Rules honored here:
   - Rule 9  (Human-review-then-send): :func:`build_digest` returns a review-ready
@@ -259,6 +261,22 @@ def _is_actionable(item: dict[str, Any]) -> bool:
     return item["actionable_date"] is not None and not item["needs_verification"]
 
 
+def _is_hazardous_violation(item: dict[str, Any]) -> bool:
+    """The city-agnostic trigger to lead the digest with a building.
+
+    A confirmed, serious housing violation is a safety fact that outranks procedure, so the
+    building it sits on leads. Keys off a connector-set severity flag
+    (``extras['hazardous']``) — never a city-specific class code — and never a
+    needs-verification item: a headline must be a confirmed fact. A complaint or a permit
+    alone never qualifies; they only corroborate a confirmed hazard (see _corroboration_note).
+    """
+    return (
+        item["action_type"] == "violation"
+        and not item["needs_verification"]
+        and bool(item.get("extras", {}).get("hazardous"))
+    )
+
+
 def _is_street_event(item: dict[str, Any]) -> bool:
     """True when the permit is for outdoor/temporary street-level work (EW permit type).
 
@@ -295,7 +313,9 @@ def _group_buildings(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
         key = _building_key(it)
         if key not in groups:
             label = it["address"] or (f"BBL {it['bbl']}" if it["bbl"] else it["title"])
-            groups[key] = {"label": label, "items": []}
+            # ``key`` is persisted so the at-risk lead can reference a building by key
+            # (round-trip-safe) instead of duplicating its item dicts in the digest.
+            groups[key] = {"key": key, "label": label, "items": []}
         groups[key]["items"].append(it)
     out = list(groups.values())
     for g in out:
@@ -393,6 +413,18 @@ def build_digest(
             buildings = _group_buildings(band_items)
             sections.append({"band": band, "label": label, "buildings": buildings})
 
+    # "Right next to you": buildings with a confirmed serious (hazardous) violation lead the
+    # whole digest — a safety fact a reader can act on outranks any procedural hearing. The
+    # keys are listed in proximity order (sections run block -> neighborhood -> area); the
+    # renderer resolves each key back to its building thread, so a building is never
+    # duplicated and the items keep their single source of truth in ``sections``.
+    at_risk_building_keys = [
+        building["key"]
+        for section in sections
+        for building in section["buildings"]
+        if any(_is_hazardous_violation(it) for it in building["items"])
+    ]
+
     # "Act on this": only items with a still-open action window, soonest first. The
     # same item may also appear in its building thread below for context — the digest
     # orders for actionability first. Needs-verification items are excluded from the lead.
@@ -466,6 +498,7 @@ def build_digest(
         "stats_line": stats_line,
         "lead_items": lead_items,
         "lead_ids": [it["source_record_id"] for it in lead_items],
+        "at_risk_building_keys": at_risk_building_keys,
         "later_items": later_items,
         "overdue_items": overdue_items,
         "recent_items": recent_items,
@@ -664,9 +697,58 @@ def render_markdown(
         out.append(digest["stats_line"])
         out.append("")
 
-    # "Act on this": the forward-looking lead — still-open items only, soonest first.
     asof = date.fromisoformat(digest["asof"])
     lead = digest.get("lead_items") or []
+    lead_ids = set(digest.get("lead_ids") or [])
+
+    # "Right next to you": buildings with a confirmed serious violation lead the whole
+    # digest — a safety fact outranks procedure. A building thread shown here is not repeated
+    # in "Near you" below; items already in the "Act on this" lead are left to that section so
+    # they keep their When/deadline framing. The displacement-style corroboration note (a new
+    # permit on a building that also has violations/complaints) is the headline.
+    building_by_key = {b["key"]: b for section in digest["sections"] for b in section["buildings"]}
+    at_risk = [
+        building_by_key[k]
+        for k in (digest.get("at_risk_building_keys") or [])
+        if k in building_by_key
+    ]
+    # Resolve each at-risk building to the items it would actually show here (its thread
+    # minus anything already in the "Act on this" lead). Compute this before emitting the
+    # header so a building whose only hazard item leads "Act on this" (a future correct-by
+    # deadline) doesn't leave a stray empty "Right next to you" header.
+    at_risk_visible = [
+        (building, [it for it in building["items"] if it.get("source_record_id") not in lead_ids])
+        for building in at_risk
+    ]
+    at_risk_visible = [(b, vis) for b, vis in at_risk_visible if vis]
+    at_risk_rendered_ids: set[str] = set()
+    if at_risk_visible:
+        out.append("## Right next to you")
+        out.append("")
+        for building, visible in at_risk_visible:
+            out.append(f"#### {building['label']}")
+            out.append("")
+            note = _corroboration_note(building["items"])
+            if note:
+                out.append(note)
+                out.append("")
+            for item in visible:
+                _render_item(
+                    item,
+                    out,
+                    expand=_expand,
+                    hearing_guidance=hearing_guidance,
+                    action_context=action_context,
+                    action_contacts=action_contacts,
+                    subscriber_council_member=subscriber_council_member,
+                )
+                at_risk_rendered_ids.add(item.get("source_record_id"))
+
+    # Anything already rendered in a lead section above is suppressed in the feed sections
+    # below, so no event is shown twice.
+    shown_ids = lead_ids | at_risk_rendered_ids
+
+    # "Act on this": the forward-looking lead — still-open items only, soonest first.
     if lead:
         out.append("## Act on this")
         out.append("")
@@ -683,8 +765,14 @@ def render_markdown(
             )
 
     # "Deadline passed": recently lapsed items — listed so the reader knows what
-    # closed, without implying an open action window.
-    overdue = digest.get("overdue_items") or []
+    # closed, without implying an open action window. An item already shown in a lead
+    # section above (e.g. an overdue hazardous violation that led "Right next to you") is
+    # skipped here so it is never shown twice.
+    overdue = [
+        it
+        for it in (digest.get("overdue_items") or [])
+        if it.get("source_record_id") not in shown_ids
+    ]
     if overdue:
         out.append("## Deadline passed")
         out.append(
@@ -702,20 +790,32 @@ def render_markdown(
                 subscriber_council_member=subscriber_council_member,
             )
 
-    # "Near you": the proximity-banded, building-threaded feed. Items already shown
-    # in the "Act on this" lead are skipped here to avoid showing the same event twice.
-    lead_ids = set(digest.get("lead_ids") or [])
-    out.append("## Near you")
-    out.append("")
-    for section in digest["sections"]:
-        out.append(f"### {section['label']}")
+    # "Near you": the proximity-banded, building-threaded feed. Items already shown in the
+    # "Act on this" lead or the "Right next to you" section are skipped here to avoid showing
+    # the same event twice; a building whose every item already appeared above is omitted.
+    any_near = any(
+        it.get("source_record_id") not in shown_ids
+        for section in digest["sections"]
+        for building in section["buildings"]
+        for it in building["items"]
+    )
+    if any_near:
+        out.append("## Near you")
         out.append("")
+    for section in digest["sections"]:
+        rendered_any = False
         for building in section["buildings"]:
             items = building["items"]
-            visible = [it for it in items if it.get("source_record_id") not in lead_ids]
+            visible = [it for it in items if it.get("source_record_id") not in shown_ids]
+            if not visible:
+                continue
+            if not rendered_any:
+                out.append(f"### {section['label']}")
+                out.append("")
+                rendered_any = True
             out.append(f"#### {building['label']}")
-            if len(items) > 1:
-                out.append(f"_{len(items)} updates on this building_")
+            if len(visible) > 1:
+                out.append(f"_{len(visible)} updates on this building_")
             out.append("")
             note = _corroboration_note(items)
             if note:
@@ -733,8 +833,13 @@ def render_markdown(
                 )
 
     # "Later": items with a still-open action window more than LEAD_MAX_DAYS out —
-    # they matter but aren't urgent enough to headline this week's digest.
-    later = digest.get("later_items") or []
+    # they matter but aren't urgent enough to headline this week's digest. Suppress any
+    # already shown in a lead section above so nothing is rendered twice.
+    later = [
+        it
+        for it in (digest.get("later_items") or [])
+        if it.get("source_record_id") not in shown_ids
+    ]
     if later:
         out.append("### Later")
         out.append(f"_These items have open action windows more than {LEAD_MAX_DAYS} days out._")
@@ -752,8 +857,13 @@ def render_markdown(
             )
 
     # "Happened this week": events that occurred in the past 7 days with no open
-    # action window — context only, not an invitation to act.
-    recent = digest.get("recent_items") or []
+    # action window — context only, not an invitation to act. Suppress any already shown
+    # in a lead section above so nothing is rendered twice.
+    recent = [
+        it
+        for it in (digest.get("recent_items") or [])
+        if it.get("source_record_id") not in shown_ids
+    ]
     if recent:
         out.append("### Happened this week")
         out.append(
