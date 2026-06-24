@@ -93,12 +93,14 @@ except ImportError:
 log = get_logger(__name__)
 
 SOURCE_ID_DOB = "nyc_dob_now"
+SOURCE_ID_DOB_NOW_BUILD = "nyc_dob_now_build"  # DOB NOW: Build portal (qnmk-7xra)
 SOURCE_ID_HPD = "nyc_hpd_violations"
 SOURCE_ID_DISPLACEMENT = "nyc_displacement_signal"
 
 # Socrata dataset ids (the verifiable row link is built from these — see citations.py).
 DATASET_HPD = "wvxf-dwi5"  # HPD housing-maintenance violations
-DATASET_DOB = "ipu4-2q9a"  # DOB permit issuance
+DATASET_DOB = "ipu4-2q9a"  # DOB permit issuance (legacy BIS system)
+DATASET_DOB_NOW = "qnmk-7xra"  # DOB NOW: Build — approved permits (current system)
 
 SOCRATA_DOMAIN = "data.cityofnewyork.us"
 _PAGE = 1000  # Socrata default cap per request; we paginate by offset.
@@ -145,6 +147,31 @@ _JOB_TYPE_LABEL = {
     "NB": "new building",
     "DM": "demolition",
 }
+# DOB NOW uses descriptive work_type strings instead of short codes.  Map the known
+# values to the same short codes so downstream logic (displacement signal, ranker)
+# stays uniform.  Keys are lowercased for case-insensitive matching.
+_DOB_NOW_WORK_TYPE_TO_CODE = {
+    "full demolition": "DM",
+    "full demo": "DM",
+    "new building": "NB",
+    "alteration type 1": "A1",
+    "alteration type-1": "A1",
+    "alteration type i": "A1",
+    "a1": "A1",
+    "alteration type 2": "A2",
+    "alteration type-2": "A2",
+    "alteration type ii": "A2",
+    "a2": "A2",
+    "alteration type 3": "A3",
+    "alteration type-3": "A3",
+    "alteration type iii": "A3",
+    "a3": "A3",
+    "nb": "NB",
+    "dm": "DM",
+}
+# Community board codes for East Harlem in the DOB NOW c_b_no field.
+# DOB NOW encodes community board as boro_digit + 2-digit board (e.g. "111" = Manhattan CB11).
+_DOB_NOW_CB_CODES = ("111",)
 # Plain-English severity labels for HPD violation classes (per HPD's own definitions).
 _HPD_CLASS_LABEL: dict[str, str] = {
     "C": "immediately hazardous",
@@ -346,6 +373,87 @@ def _dob_permit_to_event(rec: Mapping[str, Any]) -> CivicEvent:
     )
 
 
+def _dob_now_permit_to_event(rec: Mapping[str, Any]) -> CivicEvent:
+    """Map one DOB NOW: Build approved-permit row to a CivicEvent.
+
+    DOB NOW uses different field names and descriptive work_type strings rather
+    than the short job_type codes of the legacy BIS dataset.  No lat/lon is
+    available in this dataset; proximity matching falls back to community board.
+    """
+    now = datetime.now(UTC)
+    raw_work_type = rec.get("work_type") or ""
+    job_type = _DOB_NOW_WORK_TYPE_TO_CODE.get(raw_work_type.lower(), raw_work_type.upper() or None)
+    label = _JOB_TYPE_LABEL.get(job_type or "", job_type.lower() if job_type else "permit")
+    addr = _address(rec.get("house_no"), rec.get("street_name"))
+    boro_digit = _BORO_NAME_TO_DIGIT.get((rec.get("borough") or "").upper())
+    filing_number = rec.get("job_filing_number") or ""
+    record_id = filing_number or "-".join(
+        str(rec.get(k, "")) for k in ("bin", "block", "lot", "issued_date")
+    )
+    permit_citations: list[Citation] = []
+    if filing_number:
+        permit_citations.append(
+            citations.socrata_row(
+                DATASET_DOB_NOW,
+                "job_filing_number",
+                filing_number,
+                label=f"DOB NOW permit {filing_number} (NYC Open Data)",
+                retrieved_at=now,
+            )
+        )
+    bin_no = rec.get("bin")
+    building_link = citations.dob_permits_by_bin(
+        bin_no, retrieved_at=now
+    ) or citations.bis_property(boro_digit, rec.get("block"), rec.get("lot"), retrieved_at=now)
+    if building_link:
+        permit_citations.append(building_link)
+    owner = rec.get("owner_business_name") or rec.get("owner_name")
+    # label falls back to "permit" when work_type is unknown; strip it so neither the
+    # title nor summary repeats the word ("Permit permit" / "approved a permit permit").
+    display_label = label if label and label.lower() != "permit" else ""
+    return CivicEvent(
+        source_id=SOURCE_ID_DOB_NOW_BUILD,
+        source_record_id=record_id,
+        bbl=bbl(boro_digit, rec.get("block"), rec.get("lot")),
+        action_type="permit",
+        title=(
+            f"{display_label.capitalize()} permit (DOB NOW)" if display_label else "DOB NOW permit"
+        ),
+        summary=(
+            f"DOB NOW approved a{' ' + display_label if display_label else ''} permit"
+            f" at {addr or 'this building'}" + (f" for {owner.title()}" if owner else "") + "."
+        ),
+        address=addr,
+        event_date=_parse_iso(rec.get("issued_date")),
+        confidence=1.0,
+        status=RecordStatus.ACCEPTED,
+        citations=permit_citations,
+        extras={
+            "job_type": job_type,
+            "work_type": raw_work_type,
+            "bin": bin_no,
+            "issued_date": rec.get("issued_date"),
+            "approved_date": rec.get("approved_date"),
+            "owner_business_name": owner,
+            "applicant_business_name": (
+                rec.get("applicant_business_name")
+                or " ".join(
+                    filter(
+                        None,
+                        [
+                            rec.get("applicant_first_name"),
+                            rec.get("applicant_last_name"),
+                        ],
+                    )
+                )
+                or None
+            ),
+            "job_description": rec.get("job_description"),
+        },
+        extracted_at=now,
+    )
+
+
 # --------------------------------------------------------------------------- #
 # Declarative feed registry (dlt-style)                                        #
 # --------------------------------------------------------------------------- #
@@ -386,6 +494,18 @@ DOB_PERMITS_FEED = SocrataFeed(
     primary_key=("permit_si_no",),
     mapper=_dob_permit_to_event,
     scope_where=f"community_board = '{EAST_HARLEM_CB}'",
+)
+# DOB NOW: Build (qnmk-7xra) — the current permit issuance system.  Covers most
+# new permits that ipu4-2q9a misses; the two feeds are unioned in gather_live_events.
+# c_b_no format: DOB NOW encodes community board as boro_digit + 2-digit board ("111" = MN CB11).
+# If this filter returns 0 rows a self-diagnostic logs real sample values (see iter_feed).
+DOB_NOW_PERMITS_FEED = SocrataFeed(
+    source_id=SOURCE_ID_DOB_NOW_BUILD,
+    dataset_id=DATASET_DOB_NOW,
+    primary_key=("job_filing_number",),
+    mapper=_dob_now_permit_to_event,
+    scope_where=f"c_b_no in {_sql_in(_DOB_NOW_CB_CODES)}",
+    incremental_cursor="approved_date",
 )
 
 
@@ -430,6 +550,7 @@ def iter_feed(
 
     fetched = 0
     offset = 0
+    first_page_empty = True
     try:
         while True:
             page = _get_page(
@@ -442,6 +563,7 @@ def iter_feed(
             )
             if not page:
                 break
+            first_page_empty = False
             for rec in page:
                 yield feed.mapper(rec)
                 fetched += 1
@@ -449,6 +571,23 @@ def iter_feed(
                     return
             offset += _PAGE
     finally:
+        # Self-diagnostic: if the scoped query returned nothing, sample unscoped values
+        # so a format mismatch in the scope_where clause is immediately obvious in logs.
+        if first_page_empty:
+            try:
+                sample = client.get(feed.dataset_id, limit=3, order=":id")
+                scope_field = feed.scope_where.split()[0].strip("(")
+                sample_vals = [r.get(scope_field, "(field missing)") for r in sample]
+                log.warning(
+                    "%s scope returned 0 rows. Real '%s' sample values: %s. "
+                    "Check scope_where=%r against actual dataset format.",
+                    feed.dataset_id,
+                    scope_field,
+                    sample_vals,
+                    feed.scope_where,
+                )
+            except Exception:  # noqa: BLE001
+                pass
         client.close()
 
 

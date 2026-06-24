@@ -767,7 +767,11 @@ def test_dob_permit_title_plain_english_leads():
     # title directly on the source event before the filter runs.
     from ingest.sources.nyc.harlem_digest import _sample_events
 
-    permit = next(e for e in _sample_events() if e.action_type == "permit" and e.extras.get("job_type") == "A1")
+    permit = next(
+        e
+        for e in _sample_events()
+        if e.action_type == "permit" and e.extras.get("job_type") == "A1"
+    )
     lower = (permit.title or "").lower()
     assert "major alteration" in lower
     assert lower.index("major alteration") < lower.index("(dob a1)")
@@ -782,3 +786,236 @@ def test_stats_line_uses_walkable_area_framing(digest):
     line = digest["stats_line"]
     assert line is not None
     assert line.startswith("This week within a 5-minute walk:")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Citation strength badges (CHANGE 1)
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+def test_citation_badge_exact_record_renders_checkmark():
+    # An exact_record citation must append " ✓" so a reader can immediately see
+    # this link goes to the definitive city record, not a search fallback.
+    from ingest.extract.schemas import Citation, CivicEvent, RecordStatus
+
+    ev = CivicEvent(
+        source_id="test_src",
+        source_record_id="BADGE-EXACT-1",
+        bbl=str(SAMPLE_SUBSCRIBER["bbl"]),
+        action_type="permit",
+        title="Permit with exact record citation",
+        summary="A permit event.",
+        address=str(SAMPLE_SUBSCRIBER["address"]),
+        event_date=ASOF + timedelta(days=5),
+        deadline=ASOF + timedelta(days=30),
+        confidence=1.0,
+        status=RecordStatus.ACCEPTED,
+        citations=[
+            Citation(
+                kind="data_source",
+                verifies="exact_record",
+                label="DOB permit row",
+                url="https://data.cityofnewyork.us/permit/1",
+            )
+        ],
+    )
+    matched = match_subscriber(SAMPLE_SUBSCRIBER, [ev])
+    digest = build_digest(SAMPLE_SUBSCRIBER, matched, asof=ASOF)
+    body = render_markdown(digest)
+    assert "DOB permit row ✓" in body
+    assert "DOB permit row (search)" not in body
+
+
+def test_citation_badge_search_renders_search_label():
+    # A search-strength citation must append " (search)" so the reader knows this
+    # link queries a search tool, not a direct record link.
+    from ingest.extract.schemas import Citation, CivicEvent, RecordStatus
+
+    ev = CivicEvent(
+        source_id="test_src",
+        source_record_id="BADGE-SEARCH-1",
+        bbl=str(SAMPLE_SUBSCRIBER["bbl"]),
+        action_type="permit",
+        title="Permit with search citation",
+        summary="A permit event.",
+        address=str(SAMPLE_SUBSCRIBER["address"]),
+        event_date=ASOF + timedelta(days=5),
+        deadline=ASOF + timedelta(days=30),
+        confidence=1.0,
+        status=RecordStatus.ACCEPTED,
+        citations=[
+            Citation(
+                kind="data_source",
+                verifies="search",
+                label="DOB building search",
+                url="https://data.cityofnewyork.us/search/1",
+            )
+        ],
+    )
+    matched = match_subscriber(SAMPLE_SUBSCRIBER, [ev])
+    digest = build_digest(SAMPLE_SUBSCRIBER, matched, asof=ASOF)
+    body = render_markdown(digest)
+    assert "DOB building search (search)" in body
+    assert "DOB building search ✓" not in body
+
+
+def test_citation_badge_in_lead_item():
+    # _render_lead_item must also apply the strength badge (not just _render_item).
+    from ingest.extract.schemas import Citation, CivicEvent, RecordStatus
+
+    ev = CivicEvent(
+        source_id="test_src",
+        source_record_id="BADGE-LEAD-1",
+        bbl=str(SAMPLE_SUBSCRIBER["bbl"]),
+        action_type="land_use_hearing",
+        title="Hearing with exact citation",
+        summary="Upcoming hearing.",
+        address=str(SAMPLE_SUBSCRIBER["address"]),
+        event_date=ASOF + timedelta(days=7),
+        confidence=1.0,
+        status=RecordStatus.ACCEPTED,
+        citations=[
+            Citation(
+                kind="data_source",
+                verifies="exact_record",
+                label="Legistar matter",
+                url="https://legistar.council.nyc.gov/matter/1",
+            )
+        ],
+    )
+    matched = match_subscriber(SAMPLE_SUBSCRIBER, [ev])
+    digest = build_digest(SAMPLE_SUBSCRIBER, matched, asof=ASOF)
+    body = render_markdown(digest)
+    # The item lands in the "Act on this" lead section.
+    assert any("Hearing with exact citation" in it["title"] for it in digest["lead_items"])
+    assert "Legistar matter ✓" in body
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# [needs verification] footnote content (CHANGE 2)
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+def test_needs_verification_footnote_content(digest):
+    # The footnote must name the confidence threshold, describe what human review
+    # checks, and offer a concrete feedback path — so a reader knows what the flag
+    # means and how to report a mismatch.
+    assert digest["footnotes"], "expected at least one footnote for the needs-verification item"
+    fn = digest["footnotes"][0]
+    assert "acceptance threshold" in fn
+    assert "A person verified" in fn
+    assert "reply to this email" in fn
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# action_contacts — "How to respond" per action type
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+def test_action_contacts_rendered_in_body():
+    # When action_contacts is supplied, render_markdown must emit a "How to respond:"
+    # line for items whose action_type has a contact entry.
+    from ingest.extract.schemas import CivicEvent, RecordStatus
+
+    ev = CivicEvent(
+        source_id="test_src",
+        source_record_id="contact-violation-1",
+        bbl=str(SAMPLE_SUBSCRIBER["bbl"]),
+        action_type="violation",
+        title="Class C violation",
+        summary="HPD cited hazardous conditions.",
+        address=str(SAMPLE_SUBSCRIBER["address"]),
+        event_date=ASOF,
+        confidence=1.0,
+        status=RecordStatus.ACCEPTED,
+    )
+    matched = match_subscriber(SAMPLE_SUBSCRIBER, [ev])
+    digest = build_digest(SAMPLE_SUBSCRIBER, matched, asof=ASOF)
+    body = render_markdown(
+        digest,
+        action_contacts={"violation": "Call 311 to confirm the violation is on record."},
+    )
+    assert "**How to respond:**" in body
+    assert "Call 311 to confirm" in body
+
+
+def test_action_contacts_not_rendered_when_no_mapping():
+    # If action_contacts has no entry for an action type, no "How to respond:" line appears.
+    from ingest.extract.schemas import CivicEvent, RecordStatus
+
+    ev = CivicEvent(
+        source_id="test_src",
+        source_record_id="contact-permit-noop",
+        bbl=str(SAMPLE_SUBSCRIBER["bbl"]),
+        action_type="permit",
+        title="Minor alteration permit",
+        summary="A permit was issued.",
+        address=str(SAMPLE_SUBSCRIBER["address"]),
+        event_date=ASOF,
+        confidence=1.0,
+        status=RecordStatus.ACCEPTED,
+    )
+    matched = match_subscriber(SAMPLE_SUBSCRIBER, [ev])
+    digest = build_digest(SAMPLE_SUBSCRIBER, matched, asof=ASOF)
+    # Pass contacts dict with no entry for "permit"
+    body = render_markdown(digest, action_contacts={"violation": "Call 311."})
+    assert "**How to respond:**" not in body
+
+
+def test_action_contacts_in_lead_item():
+    # _render_lead_item (the "Act on this" section) must also render "How to respond:"
+    from ingest.extract.schemas import Citation, CivicEvent, RecordStatus
+
+    ev = CivicEvent(
+        source_id="test_src",
+        source_record_id="contact-lead-hearing",
+        bbl=str(SAMPLE_SUBSCRIBER["bbl"]),
+        action_type="land_use_hearing",
+        title="Land use hearing",
+        summary="Upcoming hearing for a rezoning.",
+        address=str(SAMPLE_SUBSCRIBER["address"]),
+        event_date=ASOF + timedelta(days=5),
+        confidence=1.0,
+        status=RecordStatus.ACCEPTED,
+        citations=[
+            Citation(
+                kind="data_source",
+                verifies="exact_record",
+                label="Legistar matter",
+                url="https://legistar.council.nyc.gov/LegislationDetail.aspx?ID=1",
+            )
+        ],
+    )
+    matched = match_subscriber(SAMPLE_SUBSCRIBER, [ev])
+    digest = build_digest(SAMPLE_SUBSCRIBER, matched, asof=ASOF)
+    body = render_markdown(
+        digest,
+        action_contacts={"land_use_hearing": "Register to speak at council.nyc.gov/committees."},
+    )
+    assert "**How to respond:**" in body
+    assert "Register to speak" in body
+
+
+def test_action_contacts_none_produces_no_contact_line():
+    # Omitting action_contacts entirely must not produce any "How to respond:" output.
+    matched = match_subscriber(SAMPLE_SUBSCRIBER, _sample_events())
+    digest = build_digest(SAMPLE_SUBSCRIBER, matched, asof=ASOF)
+    body = render_markdown(digest)
+    assert "**How to respond:**" not in body
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# permitted_event category weight — must rank below permit and above grade
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+def test_permitted_event_category_weight_below_permit():
+    from ingest.deliver.digest import _category_weight
+
+    assert _category_weight("permitted_event") < _category_weight("permit")
+
+
+def test_permitted_event_category_weight_above_energy_grade():
+    from ingest.deliver.digest import _category_weight
+
+    assert _category_weight("permitted_event") > _category_weight("building_energy_grade")

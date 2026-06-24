@@ -112,10 +112,15 @@ def _category_weight(action_type: str | None) -> float:
         return 0.6
     if action_type == "permit":
         return 0.5
+    if action_type == "sla_license":
+        return 0.65  # 30-day action window + CB notification requirement makes this high-value
     if action_type == "building_energy_grade":
         return 0.3  # building context, not an action a reader takes — ranks below a permit
     if action_type == "habitability_complaints":
         return 0.35  # a cluster of 311 reports is context (and a report, not a confirmed fact)
+    if action_type == "permitted_event":
+        # Time-bound neighborhood event: more urgent than a static grade, not a civic action.
+        return 0.32
     if action_type and "hearing" in action_type:
         return 0.7
     if action_type in _PUBLIC_REVIEW_ACTIONS:  # rezoning, special permit, variance, ...
@@ -199,6 +204,14 @@ def _signals(event: CivicEvent, band: str, asof: date) -> dict[str, float]:
 
 # Order citations strongest-first so the reader sees the best proof first.
 _VERIFY_RANK = {"exact_record": 0, "exact_building": 1, "search": 2}
+
+
+def _citation_label(citation: dict[str, Any]) -> str:
+    """Append a strength badge so readers can tell exact records from search fallbacks."""
+    label = citation["label"]
+    if citation.get("verifies") in ("exact_record", "exact_building"):
+        return label + " ✓"
+    return label + " (search)"
 
 
 def _to_item(event: CivicEvent, band: str, asof: date) -> dict[str, Any]:
@@ -427,9 +440,11 @@ def build_digest(
     footnotes: list[str] = []
     if review_items:
         footnotes.append(
-            "Items marked [needs verification] are AI-surfaced correlations or "
-            "lower-confidence records, not confirmed facts - a human reviews them "
-            "before this digest is sent, and the source links let you check them yourself."
+            "Items marked [needs verification] are lower-confidence AI extractions or "
+            "cross-source correlations that haven't cleared the acceptance threshold. "
+            "A person verified these items for basic factual sense against the source links "
+            "before sending. If a source link doesn't match what the item says, "
+            "reply to this email — we log every correction."
         )
 
     n = len(all_items)
@@ -498,6 +513,8 @@ def _render_item(
     *,
     expand: Callable[[str], str] | None = None,
     hearing_guidance: str | None = None,
+    action_context: dict[str, str] | None = None,
+    action_contacts: dict[str, str] | None = None,
     subscriber_council_member: str | None = None,
 ) -> None:
     _e = expand or (lambda t: t)
@@ -505,11 +522,18 @@ def _render_item(
     out.append(f"**{_e(item['title'])}**{tag}")
     if item["summary"]:
         out.append(_e(item["summary"]))
+    # Caller-supplied background blurb for this action type — visually separated as a
+    # blockquote so it reads as general context, not a claim about this specific filing.
+    if action_context and (blurb := action_context.get(item.get("action_type") or "")):
+        out.append(f"> {blurb}")
+    # Resident action prompt — who to call / what to do for this specific action type.
+    if action_contacts and (contact := action_contacts.get(item.get("action_type") or "")):
+        out.append(f"- **How to respond:** {contact}")
     if item["deadline_note"]:
         out.append(f"- **Action deadline:** {item['deadline_note']}")
     # Sources, strongest proof first, on one line so it reads like a citation.
     if item["citations"]:
-        links = " · ".join(f"[{c['label']}]({c['url']})" for c in item["citations"])
+        links = " · ".join(f"[{_citation_label(c)}]({c['url']})" for c in item["citations"])
         prefix = "Verify" if not item["needs_verification"] else "Check the sources"
         out.append(f"- {prefix}: {links}")
     if item.get("action_type") == "council_vote" and item.get("extras", {}).get("roll_call"):
@@ -543,6 +567,8 @@ def _render_lead_item(
     *,
     expand: Callable[[str], str] | None = None,
     hearing_guidance: str | None = None,
+    action_context: dict[str, str] | None = None,
+    action_contacts: dict[str, str] | None = None,
     subscriber_council_member: str | None = None,
 ) -> None:
     """One compact entry in the 'Act on this' lead: title, when, and the verify line."""
@@ -552,8 +578,12 @@ def _render_lead_item(
     if when is not None:
         out.append(f"- **When:** {_when_phrase(when, asof)} ({when.isoformat()})")
     if item["citations"]:
-        links = " · ".join(f"[{c['label']}]({c['url']})" for c in item["citations"])
+        links = " · ".join(f"[{_citation_label(c)}]({c['url']})" for c in item["citations"])
         out.append(f"- Verify: {links}")
+    if action_context and (blurb := action_context.get(item.get("action_type") or "")):
+        out.append(f"> {blurb}")
+    if action_contacts and (contact := action_contacts.get(item.get("action_type") or "")):
+        out.append(f"- **How to respond:** {contact}")
     if (
         hearing_guidance
         and "hearing" in (item.get("action_type") or "")
@@ -572,6 +602,8 @@ def render_markdown(
     *,
     glossary: dict[str, str] | None = None,
     hearing_guidance: str | None = None,
+    action_context: dict[str, str] | None = None,
+    action_contacts: dict[str, str] | None = None,
     subscriber_council_member: str | None = None,
 ) -> str:
     """Render the digest into the plain-English, verifiable email body (Markdown)."""
@@ -625,6 +657,8 @@ def render_markdown(
                 out,
                 expand=_expand,
                 hearing_guidance=hearing_guidance,
+                action_context=action_context,
+                action_contacts=action_contacts,
                 subscriber_council_member=subscriber_council_member,
             )
 
@@ -642,6 +676,7 @@ def render_markdown(
                 item,
                 out,
                 expand=_expand,
+                action_context=action_context,
                 subscriber_council_member=subscriber_council_member,
             )
 
@@ -670,6 +705,8 @@ def render_markdown(
                     out,
                     expand=_expand,
                     hearing_guidance=hearing_guidance,
+                    action_context=action_context,
+                    action_contacts=action_contacts,
                     subscriber_council_member=subscriber_council_member,
                 )
 
@@ -687,6 +724,8 @@ def render_markdown(
                 out,
                 expand=_expand,
                 hearing_guidance=hearing_guidance,
+                action_context=action_context,
+                action_contacts=action_contacts,
                 subscriber_council_member=subscriber_council_member,
             )
 
@@ -706,6 +745,8 @@ def render_markdown(
                 out,
                 expand=_expand,
                 hearing_guidance=hearing_guidance,
+                action_context=action_context,
+                action_contacts=action_contacts,
                 subscriber_council_member=subscriber_council_member,
             )
 
