@@ -132,3 +132,167 @@ def test_geosearch_cd_returns_none_on_network_error(monkeypatch):
     # Confirm the mapper itself never calls _geosearch_cd (geocoding is in iter_permitted_events)
     ev = _permitted_event_to_event(_SAMPLE_REC)
     assert ev.source_id == SOURCE_ID
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# _geosearch_cd — HTTP layer
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+def test_geosearch_cd_returns_cd_string(monkeypatch):
+    # GeoSearch returns addendum.pad.cd as a 3-char string; zfill(3) leaves it unchanged.
+    import json
+    import urllib.request
+
+    from ingest.sources.nyc.permitted_events import _geosearch_cd
+
+    fixture = json.dumps(
+        {"features": [{"properties": {"addendum": {"pad": {"cd": "111"}}}}]}
+    ).encode()
+
+    class _Resp:
+        def read(self):
+            return fixture
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            pass
+
+    monkeypatch.setattr(urllib.request, "urlopen", lambda *a, **k: _Resp())
+    assert _geosearch_cd("308 E 116th St") == "111"
+
+
+def test_geosearch_cd_integer_cd(monkeypatch):
+    # GeoSearch occasionally returns cd as an int; str() + zfill(3) must handle it.
+    import json
+    import urllib.request
+
+    from ingest.sources.nyc.permitted_events import _geosearch_cd
+
+    fixture = json.dumps(
+        {"features": [{"properties": {"addendum": {"pad": {"cd": 111}}}}]}
+    ).encode()
+
+    class _Resp:
+        def read(self):
+            return fixture
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            pass
+
+    monkeypatch.setattr(urllib.request, "urlopen", lambda *a, **k: _Resp())
+    assert _geosearch_cd("308 E 116th St") == "111"
+
+
+def test_geosearch_cd_no_features_returns_none(monkeypatch):
+    import json
+    import urllib.request
+
+    from ingest.sources.nyc.permitted_events import _geosearch_cd
+
+    fixture = json.dumps({"features": []}).encode()
+
+    class _Resp:
+        def read(self):
+            return fixture
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            pass
+
+    monkeypatch.setattr(urllib.request, "urlopen", lambda *a, **k: _Resp())
+    assert _geosearch_cd("308 E 116th St") is None
+
+
+def test_geosearch_cd_network_error_returns_none(monkeypatch):
+    import urllib.request
+
+    from ingest.sources.nyc.permitted_events import _geosearch_cd
+
+    def _raise(*a, **k):
+        raise OSError("connection refused")
+
+    monkeypatch.setattr(urllib.request, "urlopen", _raise)
+    assert _geosearch_cd("308 E 116th St") is None
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# iter_permitted_events — CD filter paths
+# ══════════════════════════════════════════════════════════════════════════════
+
+_ITER_SAMPLE_REC = {
+    "event_id": "EVT-ITER-001",
+    "event_name": "Harlem Block Party",
+    "event_type": "Block Party",
+    "event_location": "116th St between Lex and Park",
+    "start_date_time": "2026-07-04T12:00:00",
+    "end_date_time": "2026-07-04T18:00:00",
+    "event_borough": "Manhattan",
+    "event_contact_phone": None,
+    "event_contact_e_mail": None,
+}
+
+
+def _make_fake_get_page(records):
+    """Return a _get_page replacement that yields records on the first call, then stops."""
+    seen = {"called": False}
+
+    def _fake(client, *, where, limit, offset):
+        if not seen["called"]:
+            seen["called"] = True
+            return records
+        return []
+
+    return _fake
+
+
+class _FakeSocrata:
+    def __init__(self, *a, **k):
+        pass
+
+    def close(self):
+        pass
+
+
+def test_iter_passes_matching_cd_event(monkeypatch):
+    # An event whose geocode returns cd == TARGET_COMMUNITY_DISTRICT must be emitted.
+    from ingest.sources.nyc import permitted_events
+
+    monkeypatch.setattr(permitted_events, "Socrata", _FakeSocrata, raising=False)
+    monkeypatch.setattr(permitted_events, "_get_page", _make_fake_get_page([_ITER_SAMPLE_REC]))
+    monkeypatch.setattr(permitted_events, "_geosearch_cd", lambda addr: "111")
+
+    events = list(permitted_events.iter_permitted_events("111"))
+    assert len(events) == 1
+    assert events[0].source_record_id == "EVT-ITER-001"
+
+
+def test_iter_filters_wrong_cd_event(monkeypatch):
+    # An event whose geocode returns a different CD must be filtered out.
+    from ingest.sources.nyc import permitted_events
+
+    monkeypatch.setattr(permitted_events, "Socrata", _FakeSocrata, raising=False)
+    monkeypatch.setattr(permitted_events, "_get_page", _make_fake_get_page([_ITER_SAMPLE_REC]))
+    monkeypatch.setattr(permitted_events, "_geosearch_cd", lambda addr: "112")
+
+    events = list(permitted_events.iter_permitted_events("111"))
+    assert events == []
+
+
+def test_iter_skips_blank_location_without_raising(monkeypatch):
+    # A record with a blank event_location must hit the continue guard and not raise.
+    from ingest.sources.nyc import permitted_events
+
+    blank_rec = {**_ITER_SAMPLE_REC, "event_location": ""}
+    monkeypatch.setattr(permitted_events, "Socrata", _FakeSocrata, raising=False)
+    monkeypatch.setattr(permitted_events, "_get_page", _make_fake_get_page([blank_rec]))
+
+    events = list(permitted_events.iter_permitted_events("111"))
+    assert events == []
