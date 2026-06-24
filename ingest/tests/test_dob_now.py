@@ -24,7 +24,7 @@ _SAMPLE_REC = {
     "bin": "1060000",
     "block": "1650",
     "lot": "30",
-    "c_b_no": "MN11",
+    "c_b_no": "111",
     "issued_date": "2026-03-15T00:00:00",
     "approved_date": "2026-03-14T00:00:00",
     "owner_business_name": "308 EAST HOLDINGS LLC",

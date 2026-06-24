@@ -170,8 +170,8 @@ _DOB_NOW_WORK_TYPE_TO_CODE = {
     "dm": "DM",
 }
 # Community board codes for East Harlem in the DOB NOW c_b_no field.
-# DOB NOW stores board as "MN11" for Manhattan CB11; include numeric fallback.
-_DOB_NOW_CB_CODES = ("MN11", "311")
+# DOB NOW encodes community board as boro_digit + 2-digit board (e.g. "111" = Manhattan CB11).
+_DOB_NOW_CB_CODES = ("111",)
 # Plain-English severity labels for HPD violation classes (per HPD's own definitions).
 _HPD_CLASS_LABEL: dict[str, str] = {
     "C": "immediately hazardous",
@@ -497,7 +497,7 @@ DOB_PERMITS_FEED = SocrataFeed(
 )
 # DOB NOW: Build (qnmk-7xra) — the current permit issuance system.  Covers most
 # new permits that ipu4-2q9a misses; the two feeds are unioned in gather_live_events.
-# c_b_no format: DOB NOW stores community board as "MN11" for Manhattan CB11.
+# c_b_no format: DOB NOW encodes community board as boro_digit + 2-digit board ("111" = MN CB11).
 # If this filter returns 0 rows a self-diagnostic logs real sample values (see iter_feed).
 DOB_NOW_PERMITS_FEED = SocrataFeed(
     source_id=SOURCE_ID_DOB_NOW_BUILD,
