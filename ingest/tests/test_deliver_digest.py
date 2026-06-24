@@ -1019,3 +1019,58 @@ def test_permitted_event_category_weight_above_energy_grade():
     from ingest.deliver.digest import _category_weight
 
     assert _category_weight("permitted_event") > _category_weight("building_energy_grade")
+
+
+def test_permitted_event_category_weight_exact_value():
+    from ingest.deliver.digest import _category_weight
+
+    assert _category_weight("permitted_event") == 0.32
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Overdue items must not surface "How to respond" contact prompts
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+def test_deadline_passed_items_have_no_contact_line():
+    # Items whose deadline has already passed must NOT show a "How to respond" prompt —
+    # the action window is closed, so surfacing a contact would mislead the reader.
+    from datetime import date
+
+    from ingest.deliver.digest import render_markdown
+
+    overdue_item = {
+        "title": "Test zoning filing",
+        "summary": "A zoning change was filed.",
+        "action_type": "special_permit",
+        "source_record_id": "TEST-001",
+        "needs_verification": False,
+        "deadline_note": "overdue",
+        "citations": [
+            {
+                "kind": "data_source",
+                "url": "https://example.com/row/1",
+                "label": "Test row",
+                "verifies": "exact_record",
+            }
+        ],
+        "extras": {},
+    }
+    digest = {
+        "subject": "Test digest",
+        "area": "East Harlem",
+        "asof": date.today().isoformat(),
+        "item_count": 1,
+        "exact_verifiable_count": 1,
+        "stats_line": None,
+        "lead_items": [],
+        "lead_ids": [],
+        "overdue_items": [overdue_item],
+        "sections": [],
+        "later_items": [],
+        "needs_attention_count": 0,
+        "footnotes": [],
+    }
+    action_contacts = {"special_permit": "Call 311 to comment."}
+    md = render_markdown(digest, action_contacts=action_contacts)
+    assert "How to respond" not in md

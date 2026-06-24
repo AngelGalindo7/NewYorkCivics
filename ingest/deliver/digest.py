@@ -672,6 +672,8 @@ def render_markdown(
         )
         out.append("")
         for item in overdue:
+            # action_contacts deliberately omitted — showing a contact prompt for
+            # a closed deadline would mislead the reader into thinking action is still possible.
             _render_item(
                 item,
                 out,
