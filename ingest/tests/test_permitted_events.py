@@ -165,7 +165,8 @@ def test_geosearch_cd_returns_cd_string(monkeypatch):
 
 
 def test_geosearch_cd_integer_cd(monkeypatch):
-    # GeoSearch occasionally returns cd as an int; str() + zfill(3) must handle it.
+    # GeoSearch v2 returns cd as a string in practice, but json.loads yields a Python int
+    # when the JSON value has no quotes (e.g. "cd": 111).  str() + zfill(3) guards this.
     import json
     import urllib.request
 
@@ -265,6 +266,7 @@ def test_iter_passes_matching_cd_event(monkeypatch):
     # An event whose geocode returns cd == TARGET_COMMUNITY_DISTRICT must be emitted.
     from ingest.sources.nyc import permitted_events
 
+    # raising=False: Socrata may not exist in the namespace when sodapy is absent.
     monkeypatch.setattr(permitted_events, "Socrata", _FakeSocrata, raising=False)
     monkeypatch.setattr(permitted_events, "_get_page", _make_fake_get_page([_ITER_SAMPLE_REC]))
     monkeypatch.setattr(permitted_events, "_geosearch_cd", lambda addr: "111")
@@ -278,6 +280,7 @@ def test_iter_filters_wrong_cd_event(monkeypatch):
     # An event whose geocode returns a different CD must be filtered out.
     from ingest.sources.nyc import permitted_events
 
+    # raising=False: Socrata may not exist in the namespace when sodapy is absent.
     monkeypatch.setattr(permitted_events, "Socrata", _FakeSocrata, raising=False)
     monkeypatch.setattr(permitted_events, "_get_page", _make_fake_get_page([_ITER_SAMPLE_REC]))
     monkeypatch.setattr(permitted_events, "_geosearch_cd", lambda addr: "112")
@@ -291,6 +294,7 @@ def test_iter_skips_blank_location_without_raising(monkeypatch):
     from ingest.sources.nyc import permitted_events
 
     blank_rec = {**_ITER_SAMPLE_REC, "event_location": ""}
+    # raising=False: Socrata may not exist in the namespace when sodapy is absent.
     monkeypatch.setattr(permitted_events, "Socrata", _FakeSocrata, raising=False)
     monkeypatch.setattr(permitted_events, "_get_page", _make_fake_get_page([blank_rec]))
 
