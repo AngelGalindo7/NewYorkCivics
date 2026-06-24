@@ -142,3 +142,15 @@ def test_feed_scope_references_cb_field():
 
 def test_feed_incremental_cursor():
     assert DOB_NOW_PERMITS_FEED.incremental_cursor == "approved_date"
+
+
+def test_mapper_empty_work_type_does_not_double_permit():
+    rec = {**_SAMPLE_REC, "work_type": "", "job_filing_number": "M-EMPTY-001"}
+    ev = _dob_now_permit_to_event(rec)
+    assert ev.title == "DOB NOW permit"
+
+
+def test_mapper_a2_work_type():
+    rec = {**_SAMPLE_REC, "work_type": "Alteration Type 2", "job_filing_number": "M-A2-001"}
+    ev = _dob_now_permit_to_event(rec)
+    assert ev.extras["job_type"] == "A2"

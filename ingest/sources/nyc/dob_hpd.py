@@ -413,7 +413,11 @@ def _dob_now_permit_to_event(rec: Mapping[str, Any]) -> CivicEvent:
         source_record_id=record_id,
         bbl=bbl(boro_digit, rec.get("block"), rec.get("lot")),
         action_type="permit",
-        title=f"{label.capitalize()} permit (DOB NOW)" if label else "DOB NOW permit",
+        title=(
+            f"{label.capitalize()} permit (DOB NOW)"
+            if label and label.lower() != "permit"
+            else "DOB NOW permit"
+        ),
         summary=(
             f"DOB NOW approved a {label} permit at {addr or 'this building'}"
             + (f" for {owner.title()}" if owner else "")
