@@ -408,20 +408,20 @@ def _dob_now_permit_to_event(rec: Mapping[str, Any]) -> CivicEvent:
     if building_link:
         permit_citations.append(building_link)
     owner = rec.get("owner_business_name") or rec.get("owner_name")
+    # label falls back to "permit" when work_type is unknown; strip it so neither the
+    # title nor summary repeats the word ("Permit permit" / "approved a permit permit").
+    display_label = label if label and label.lower() != "permit" else ""
     return CivicEvent(
         source_id=SOURCE_ID_DOB_NOW_BUILD,
         source_record_id=record_id,
         bbl=bbl(boro_digit, rec.get("block"), rec.get("lot")),
         action_type="permit",
         title=(
-            f"{label.capitalize()} permit (DOB NOW)"
-            if label and label.lower() != "permit"
-            else "DOB NOW permit"
+            f"{display_label.capitalize()} permit (DOB NOW)" if display_label else "DOB NOW permit"
         ),
         summary=(
-            f"DOB NOW approved a {label} permit at {addr or 'this building'}"
-            + (f" for {owner.title()}" if owner else "")
-            + "."
+            f"DOB NOW approved a{' ' + display_label if display_label else ''} permit"
+            f" at {addr or 'this building'}" + (f" for {owner.title()}" if owner else "") + "."
         ),
         address=addr,
         event_date=_parse_iso(rec.get("issued_date")),

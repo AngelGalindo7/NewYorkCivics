@@ -148,6 +148,7 @@ def test_mapper_empty_work_type_does_not_double_permit():
     rec = {**_SAMPLE_REC, "work_type": "", "job_filing_number": "M-EMPTY-001"}
     ev = _dob_now_permit_to_event(rec)
     assert ev.title == "DOB NOW permit"
+    assert "permit permit" not in ev.summary
 
 
 def test_mapper_a2_work_type():
