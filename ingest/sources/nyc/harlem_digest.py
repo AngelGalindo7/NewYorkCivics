@@ -33,6 +33,7 @@ from ingest.parse import ParsedDoc, pdf_text
 from ingest.sources.nyc import cb_agenda, corroborate, ulurp_packet
 from ingest.sources.nyc.building_grades import discover_energy_grades
 from ingest.sources.nyc.dob_hpd import (
+    DOB_NOW_PERMITS_FEED,
     DOB_PERMITS_FEED,
     HPD_VIOLATIONS_FEED,
     _dob_permit_to_event,
@@ -45,6 +46,7 @@ from ingest.sources.nyc.legistar import (
     enrich_with_agenda,
     find_matter_by_ulurp,
 )
+from ingest.sources.nyc.permitted_events import discover_permitted_events
 from ingest.sources.nyc.service_requests import discover_service_requests
 from ingest.sources.nyc.zap_api import _zap_project_to_event, iter_zap_events
 
@@ -61,6 +63,107 @@ NYC_ACRONYMS: dict[str, str] = {
     "421-a": "a tax exemption tied to affordable unit requirements",
     "485-x": "a post-2022 affordable housing tax deal",
     "SLA": "State Liquor Authority",
+}
+
+# Plain-English background blurbs keyed by canonical action_type — passed to
+# render_markdown so each land-use item carries a brief explanation of what that
+# category of application means and who it typically affects. Lets a reader decide
+# whether the item is relevant to them without needing to research it separately.
+NYC_LAND_USE_CONTEXT: dict[str, str] = {
+    "rezoning": (
+        "A rezoning changes what can legally be built on specific lots — it may allow"
+        " taller or denser buildings, new commercial uses, or different uses than current"
+        " rules permit. Property owners, renters in surrounding buildings, and nearby"
+        " businesses are all typically affected."
+    ),
+    "special_permit": (
+        "A special permit allows a use the current zoning doesn't automatically permit —"
+        " such as a hotel, large parking facility, certain retail stores, or community"
+        " facilities — if specific conditions are met. The City Planning Commission reviews"
+        " these and may attach requirements meant to protect the surrounding neighborhood."
+    ),
+    "variance": (
+        "A variance lets a specific property deviate from the standard zoning rules — for"
+        " example, building taller than the allowed height limit or using land in a way the"
+        " zoning doesn't normally allow. The Board of Standards and Appeals reviews these."
+    ),
+    "authorization": (
+        "An authorization allows a use or design feature that zoning rules permit only under"
+        " specific circumstances, reviewed by City Planning. Less formal than a full rezoning"
+        " but can still affect what gets built on the affected lots."
+    ),
+    "certification": (
+        "A certification confirms that a proposed project meets the zoning rules' technical"
+        " requirements — primarily an administrative check. It affects what can be built but"
+        " typically does not involve a public hearing."
+    ),
+    "urban_renewal": (
+        "An urban renewal or UDAAP action involves the city acquiring or redeveloping"
+        " property, which can displace existing residents or businesses in the affected area."
+        " These actions go through the full ULURP public review process."
+    ),
+    "environmental_review": (
+        "An environmental review (CEQR) assesses how a proposed development would affect the"
+        " surrounding area — traffic, noise, air quality, shadows, and potential displacement"
+        " of residents or businesses. This typically runs alongside a major rezoning or"
+        " development application."
+    ),
+    "site_selection": (
+        "A site selection determines where a city facility — a school, shelter, office, or"
+        " other public use — will be located in the neighborhood. The decision affects nearby"
+        " residents and businesses."
+    ),
+}
+
+# Resident action prompts — keyed by canonical action_type, passed to render_markdown.
+# Each value answers: "what can I actually do about this item?"
+# NYC-SPECIFIC (knows CB11 phone, CM office, 311, HPD, SLA process). Lives here, not in
+# the city-agnostic Deliver stage (Rule 4).
+NYC_ACTION_CONTACTS: dict[str, str] = {
+    "rezoning": (
+        "CB11 must hold a public hearing — call 212-831-8929 to sign up to speak,"
+        " or check manhattancb11.org for upcoming hearing dates and written-comment instructions."
+    ),
+    "special_permit": (
+        "CB11 must hold a public hearing — call 212-831-8929 to sign up to speak before the vote."
+    ),
+    "variance": (
+        "The Board of Standards and Appeals reviews this application."
+        " Submit written comments to bsa@buildings.nyc.gov or appear at the BSA public hearing."
+    ),
+    "authorization": (
+        "City Planning reviews this — call CB11 at 212-831-8929 for upcoming comment opportunities."
+    ),
+    "land_use_hearing": (
+        "To testify at this hearing, contact the committee chair in advance."
+        " Written testimony can be submitted to the NYC Council Clerk at"
+        " council.nyc.gov/committees."
+    ),
+    "council_hearing": (
+        "To submit testimony, contact the relevant City Council committee."
+        " Written comments can be filed with the NYC Council Clerk at council.nyc.gov/committees."
+    ),
+    "sla_license": (
+        "CB11's SLA committee reviews applications and can request conditions or file an objection."
+        " Call 212-831-8929 to learn the next committee meeting date,"
+        " or email the CB11 office to submit written comments within the 30-day window."
+    ),
+    "violation": (
+        "Call 311 (or 311online.nyc.gov) to confirm the violation is on record."
+        " HPD must inspect Class C (immediately hazardous) violations within 24 hours."
+        " If a landlord ignores a repair order, tenants can call the HPD Emergency Repairs"
+        " line: 212-863-7900."
+    ),
+    "permit": (
+        "For construction safety concerns (blocked exits, falling debris, unsafe scaffold),"
+        " call 311 immediately. For questions about what a permit allows, contact CB11's"
+        " Land Use committee at 212-831-8929."
+    ),
+    "displacement_signal": (
+        "If your building has hazardous violations and a major construction permit, contact"
+        " a tenant organizer: CASA (Community Action for Safe Apartments) at 212-234-2098"
+        " or Met Council on Housing at 212-979-0611."
+    ),
 }
 
 # A sample confirmed subscriber in East Harlem (the only v1 user state — Rule 16).
@@ -175,6 +278,9 @@ def gather_live_events(
     include_votes: bool = False,
     include_vote_history: bool = False,
     vote_history_since: date | None = None,
+    include_dob_now: bool = True,
+    include_permitted_events: bool = False,
+    permitted_events_limit: int = 5,
 ) -> list[CivicEvent]:
     """Pull a bounded slice of recent East Harlem events from the live feeds.
 
@@ -273,6 +379,16 @@ def gather_live_events(
             events += list(iter_cm_vote_history(history_since))
         except Exception as exc:  # noqa: BLE001
             log.warning("vote history scan skipped (%s)", exc)
+    if include_dob_now:
+        try:
+            # DOB NOW covers most current permits that the legacy BIS dataset (ipu4-2q9a) misses.
+            dob_now_events = list(
+                iter_feed(DOB_NOW_PERMITS_FEED, limit=per_feed, order="approved_date DESC")
+            )
+            events += dob_now_events
+            log.info("dob_now: fetched %d permit(s)", len(dob_now_events))
+        except Exception as exc:  # fail soft — legacy DOB feed still runs
+            log.warning("DOB NOW feed skipped (%s)", exc)
     if include_signal:
         events += list(islice(discover_displacement_signals(), signals))
     # Enrichments are additive context: a fetch failure on a supplementary feed must never
@@ -344,6 +460,13 @@ def gather_live_events(
                     )
         except Exception as exc:
             log.warning("ulurp_packet discovery skipped (%s)", exc)
+    if include_permitted_events:
+        try:
+            permitted = discover_permitted_events(limit=permitted_events_limit)
+            events += permitted
+            log.info("permitted_events: fetched %d event(s)", len(permitted))
+        except Exception as exc:
+            log.warning("permitted events feed skipped (%s)", exc)
     zap_events = [e for e in events if e.source_id == "nyc_zap"]
     events = corroborate.corroborate_against_zap(events, zap_events)
     return events
@@ -528,6 +651,8 @@ def gather_events() -> tuple[list[CivicEvent], bool]:
             include_311=True,
             include_cb_agenda=True,
             include_ulurp_packet=True,
+            include_dob_now=True,
+            include_permitted_events=True,
         )
         if events:
             return events, True
@@ -590,6 +715,8 @@ def run() -> None:
         render_markdown(
             digest,
             glossary=NYC_ACRONYMS,
+            action_context=NYC_LAND_USE_CONTEXT,
+            action_contacts=NYC_ACTION_CONTACTS,
             hearing_guidance=(
                 "CB11 must hold a public hearing on this application."
                 " To comment, call CB11 at 212-831-8929."
