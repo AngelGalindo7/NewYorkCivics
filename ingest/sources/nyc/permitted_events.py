@@ -23,6 +23,7 @@ Rules honored
 
 from __future__ import annotations
 
+import json
 import urllib.parse
 import urllib.request
 from collections.abc import Iterator, Mapping
@@ -72,6 +73,8 @@ _TIMEOUT = 60
 TARGET_COMMUNITY_DISTRICT = "111"
 
 # GeoSearch endpoint — same stdlib-only path used by normalize/geocode.py.
+# autocomplete is sufficient for full-address strings and returns cd in addendum.pad;
+# no extra deps needed.
 _GEOSEARCH_URL = "https://geosearch.planninglabs.nyc/v2/autocomplete?text={q}&size=1"
 
 
@@ -102,8 +105,6 @@ def _geosearch_cd(address: str) -> str | None:
         url = _GEOSEARCH_URL.format(q=urllib.parse.quote(address))
         req = urllib.request.Request(url, headers={"User-Agent": "NewYorkCivics/1.0"})
         with urllib.request.urlopen(req, timeout=10) as resp:
-            import json
-
             data = json.loads(resp.read())
         features = data.get("features") or []
         if not features:
