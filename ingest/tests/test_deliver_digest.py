@@ -1022,6 +1022,8 @@ def test_permitted_event_category_weight_above_energy_grade():
 
 
 def test_permitted_event_category_weight_exact_value():
+    # 0.32 sits between habitability_complaints (0.35) and building_energy_grade (0.30):
+    # more urgent than a static label, less than a cluster of 311 reports.
     from ingest.deliver.digest import _category_weight
 
     assert _category_weight("permitted_event") == 0.32
