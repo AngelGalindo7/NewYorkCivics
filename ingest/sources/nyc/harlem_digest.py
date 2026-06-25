@@ -166,6 +166,41 @@ NYC_ACTION_CONTACTS: dict[str, str] = {
     ),
 }
 
+# Plain-English "why this matters to you" lines, keyed by canonical action_type — passed to
+# render_markdown so each item connects to the reader's own life, not just the record. This
+# is the angle a database printout never gives. NYC-SPECIFIC phrasing, so it lives here, not
+# in the city-agnostic Deliver stage.
+NYC_WHY_MATTERS: dict[str, str] = {
+    "violation": (
+        "If your own apartment has similar problems, this shows the City does act on them —"
+        " and a documented violation is leverage when you ask your landlord for repairs."
+    ),
+    "displacement_signal": (
+        "Hazardous conditions plus major construction on the same building can be an early"
+        " sign of pressure on rent-regulated tenants — worth watching if you live nearby."
+    ),
+    "habitability_complaints": (
+        "A cluster of reports about heat, hot water, or plumbing on your block can mean a"
+        " building-wide problem — useful context if you're dealing with the same issue."
+    ),
+    "permit": (
+        "Major construction nearby can mean noise, sidewalk changes, or a building being"
+        " repositioned — and on a building with violations, it can signal pressure on tenants."
+    ),
+    "rezoning": (
+        "A rezoning can reshape what gets built around you for years — and these often include"
+        " affordable apartments you may be eligible to apply for."
+    ),
+    "land_use_application": (
+        "Land-use decisions made now set what your block looks like later; the public-comment"
+        " window is the point where a resident's voice still counts."
+    ),
+    "building_energy_grade": (
+        "A low energy grade often tracks with deferred maintenance — a useful signal about how"
+        " a building is being kept up."
+    ),
+}
+
 # A sample confirmed subscriber in East Harlem (the only v1 user state — Rule 16).
 # In production this row comes from subscribers.py (signup -> GeoSupport geocode).
 SAMPLE_SUBSCRIBER = {
@@ -690,6 +725,7 @@ def run() -> None:
         "glossary": NYC_ACRONYMS,
         "action_context": NYC_LAND_USE_CONTEXT,
         "action_contacts": NYC_ACTION_CONTACTS,
+        "why_matters": NYC_WHY_MATTERS,
         "hearing_guidance": (
             "CB11 must hold a public hearing on this application."
             " To comment, call CB11 at 212-831-8929."

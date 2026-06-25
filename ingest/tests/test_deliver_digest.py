@@ -168,6 +168,55 @@ def test_footer_does_not_claim_a_link_for_unlinked_items():
     assert "the rest link to an official search tool" not in body
 
 
+def test_building_label_uses_a_real_address_over_a_bare_bbl():
+    from ingest.extract.schemas import Citation, CivicEvent, RecordStatus
+
+    # A reader can't place "BBL 1000000050". When any record on the building carries a street
+    # address, the building header uses it — even if the most-actionable record does not.
+    def _ev(rid: str, addr: str | None) -> CivicEvent:
+        return CivicEvent(
+            source_id="s",
+            source_record_id=rid,
+            bbl="1000000050",
+            action_type="building_energy_grade",
+            title=f"Record {rid}",
+            summary="Context record.",
+            address=addr,
+            confidence=1.0,
+            status=RecordStatus.ACCEPTED,
+            citations=[
+                Citation(
+                    kind="data_source", verifies="exact_record", label="r", url=f"https://x/{rid}"
+                )
+            ],
+        )
+
+    # Same BBL -> one group: one record has no street address, the other does.
+    digest = build_digest(
+        SAMPLE_SUBSCRIBER,
+        {BAND_ON_YOUR_BLOCK: [_ev("A", None), _ev("B", "50 REAL STREET")]},
+        asof=ASOF,
+    )
+    body = render_markdown(digest)
+    assert "50 REAL STREET" in body
+    assert "BBL 1000000050" not in body
+
+
+def test_why_this_matters_line_renders_from_render_options_and_kwarg():
+    # The plain-English "why this matters to you" line connects an item to the reader's life.
+    events = [_violation("V", "1000000060", hazardous=True, addr="60 HAZARD ST")]
+
+    # Embedded on the digest (the production path).
+    d1 = build_digest(SAMPLE_SUBSCRIBER, {BAND_ON_YOUR_BLOCK: events}, asof=ASOF)
+    d1["render_options"] = {"why_matters": {"violation": "This is leverage with your landlord."}}
+    assert "**Why this matters:** This is leverage with your landlord." in render_markdown(d1)
+
+    # Explicit kwarg overrides / works on its own.
+    d2 = build_digest(SAMPLE_SUBSCRIBER, {BAND_ON_YOUR_BLOCK: events}, asof=ASOF)
+    body2 = render_markdown(d2, why_matters={"violation": "Direct kwarg line."})
+    assert "**Why this matters:** Direct kwarg line." in body2
+
+
 def test_review_gate_blocks_send_until_cleared(tmp_path: Path, digest, monkeypatch):
     from ingest.deliver.send import send_digest
 
