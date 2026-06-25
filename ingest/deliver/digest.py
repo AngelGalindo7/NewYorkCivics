@@ -235,8 +235,11 @@ def _first_link(items: list[dict[str, Any]]) -> str | None:
 
 def _to_item(event: CivicEvent, band: str, asof: date) -> dict[str, Any]:
     """Project one CivicEvent into a render-ready digest item (with verify links)."""
-    verified = event.status == RecordStatus.ACCEPTED
     cites = sorted(event.citations, key=lambda c: _VERIFY_RANK.get(c.verifies, 9))
+    # A record the reader cannot check is never shown as a confirmed fact: an item with no
+    # source link at all is treated as needs-verification regardless of its status, so an
+    # AI reading of a public document can't read as authoritative as a linked City record.
+    verified = event.status == RecordStatus.ACCEPTED and bool(cites)
     action_on = _actionable_date(event.event_date, event.deadline, asof)
     return {
         "title": event.title or "(untitled event)",
@@ -499,9 +502,12 @@ def build_digest(
     n = len(all_items)
     attn = len(attention)
     building_count = sum(len(s["buildings"]) for s in sections)
-    # Honesty metric: how many items link to the exact record/building vs only a search.
+    # Honesty metric: how many items link to the exact record/building vs only a search vs
+    # carry no source link at all (an AI reading of a public document). The footer must
+    # describe all three truthfully — it may never claim a link an item does not have.
     _exact = ("exact_record", "exact_building")
     exact_verifiable = sum(1 for it in all_items if it["verifies"] in _exact)
+    linked_count = sum(1 for it in all_items if it["citations"])
     subject = f"Your neighborhood this week: {n} update{'s' if n != 1 else ''}" + (
         f" ({attn} need{'s' if attn == 1 else ''} attention)" if attn else ""
     )
@@ -523,6 +529,7 @@ def build_digest(
         "item_count": n,
         "building_count": building_count,
         "exact_verifiable_count": exact_verifiable,
+        "linked_count": linked_count,
         "needs_attention_count": attn,
         "review_required": bool(review_items),
         "review_items": [it["title"] for it in review_items],
@@ -581,11 +588,17 @@ def _render_item(
         out.append(f"- **How to respond:** {contact}")
     if item["deadline_note"]:
         out.append(f"- **Action deadline:** {item['deadline_note']}")
-    # Sources, strongest proof first, on one line so it reads like a citation.
+    # Sources, strongest proof first, on one line so it reads like a citation. An item with
+    # no source link says so plainly — it must never read as a confirmed City record.
     if item["citations"]:
         links = " · ".join(f"[{_citation_label(c)}]({c['url']})" for c in item["citations"])
         prefix = "Verify" if not item["needs_verification"] else "Check the sources"
         out.append(f"- {prefix}: {links}")
+    else:
+        out.append(
+            "- _Read from a public document — no City record links this yet; "
+            "confirm before relying on it._"
+        )
     if item.get("action_type") == "council_vote" and item.get("extras", {}).get("roll_call"):
         roll_call: dict[str, str] = item["extras"]["roll_call"]
         member = subscriber_council_member
@@ -923,8 +936,14 @@ def render_markdown(
             out.append(f"> {note}")
         out.append("")
 
-    # Honest footer: only claim row-exact verifiability for the items that have it.
-    n, exact = digest["item_count"], digest["exact_verifiable_count"]
+    # Honest footer: describe every tier truthfully — exact City record, official search
+    # tool, or no link at all (read from a public document, flagged for verification). It
+    # must never claim a link an item does not have.
+    n = digest["item_count"]
+    exact = digest["exact_verifiable_count"]
+    linked = digest.get("linked_count", n)
+    search_only = linked - exact
+    unlinked = n - linked
     out.append("---")
     if exact == n:
         out.append(
@@ -932,8 +951,14 @@ def render_markdown(
             "building or filing, so you can verify it yourself._"
         )
     else:
-        out.append(
-            f"_{exact} of {n} updates link to the exact City record; the rest link to an "
-            "official search tool where you can look the building up._"
-        )
+        parts = [f"{exact} of {n} updates link to the exact City record"]
+        if search_only:
+            parts.append(f"{search_only} link to an official search tool where you can look it up")
+        if unlinked:
+            parts.append(
+                f"{unlinked} {'is' if unlinked == 1 else 'are'} read from a public document and "
+                "marked [needs verification] — there is no City record to link yet, so confirm "
+                "before relying on it"
+            )
+        out.append("_" + "; ".join(parts) + "._")
     return "\n".join(out)

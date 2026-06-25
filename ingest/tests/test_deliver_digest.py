@@ -116,6 +116,58 @@ def test_honest_footer_does_not_overclaim(digest):
         assert "Every update above links" not in body
 
 
+def _ai_item_no_citation(rid, bbl, *, addr):
+    # An AI reading of a public document: ACCEPTED status but NO source link. It must never
+    # render as a confirmed City record.
+    from ingest.extract.schemas import CivicEvent, RecordStatus
+
+    return CivicEvent(
+        source_id="nyc_cb_agenda",
+        source_record_id=rid,
+        bbl=bbl,
+        action_type="land_use_application",
+        title=f"Proposed 40-unit development at {addr}",
+        summary="Read from the community board agenda PDF.",
+        address=addr,
+        confidence=0.9,
+        status=RecordStatus.ACCEPTED,  # high confidence, but unverifiable without a link
+        citations=[],
+    )
+
+
+def test_item_without_source_link_is_flagged_needs_verification():
+    # An item with no citation cannot be checked, so it must be flagged regardless of its
+    # status — it can never read as authoritative as a linked City record.
+    digest = build_digest(
+        SAMPLE_SUBSCRIBER,
+        {BAND_ON_YOUR_BLOCK: [_ai_item_no_citation("AG1", "1000000099", addr="9 AGENDA ST")]},
+        asof=ASOF,
+    )
+    item = _all_items(digest)[0]
+    assert item["needs_verification"] is True
+    # It enters the human-review queue (the gate must see an unverifiable claim).
+    assert digest["review_required"] is True
+
+    body = render_markdown(digest)
+    assert "[needs verification]" in body
+    assert "no City record links this yet" in body  # explicit inline marker
+
+
+def test_footer_does_not_claim_a_link_for_unlinked_items():
+    # The footer must describe link-less items truthfully, never claiming they "link to a
+    # search tool" (the false-promise the fact-checker flagged).
+    events = [
+        _violation("HAZ", "1000000001", hazardous=True, addr="1 HAZARD ST"),  # exact link
+        _ai_item_no_citation("AG1", "1000000002", addr="2 AGENDA ST"),  # no link
+    ]
+    digest = build_digest(SAMPLE_SUBSCRIBER, {BAND_ON_YOUR_BLOCK: events}, asof=ASOF)
+    body = render_markdown(digest)
+    assert digest["linked_count"] == 1 and digest["item_count"] == 2
+    # The footer names the unlinked item honestly instead of promising a search link for it.
+    assert "no City record to link yet" in body
+    assert "the rest link to an official search tool" not in body
+
+
 def test_review_gate_blocks_send_until_cleared(tmp_path: Path, digest, monkeypatch):
     from ingest.deliver.send import send_digest
 
