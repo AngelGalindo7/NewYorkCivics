@@ -147,6 +147,7 @@ def _recompute_derived(digest: dict[str, Any]) -> None:
     digest["exact_verifiable_count"] = sum(
         1 for item in items if item.get("verifies") in _EXACT_VERIFIES
     )
+    digest["linked_count"] = sum(1 for item in items if item.get("citations"))
     digest["needs_attention_count"] = sum(1 for item in items if _needs_attention(item, asof))
     # The at-risk lead is a derived field too: re-derive it from the surviving buildings so
     # the "Right next to you" lead can't point at a building review just emptied. (Today a
