@@ -332,14 +332,27 @@ def _group_buildings(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     for it in items:
         key = _building_key(it)
         if key not in groups:
-            label = it["address"] or (f"BBL {it['bbl']}" if it["bbl"] else it["title"])
             # ``key`` is persisted so the at-risk lead can reference a building by key
             # (round-trip-safe) instead of duplicating its item dicts in the digest.
-            groups[key] = {"key": key, "label": label, "items": []}
+            groups[key] = {"key": key, "label": None, "items": []}
         groups[key]["items"].append(it)
     out = list(groups.values())
     for g in out:
         g["items"].sort(key=_actionability_key)
+        # Prefer a real street address for the header: a reader can't place "BBL 1016170120".
+        # Any record on the building may carry the address, so scan the whole group rather
+        # than only the lead item; _to_item uses a "BBL ..." string as its own address
+        # fallback, so skip those — a bare BBL is the last resort.
+        first = g["items"][0]
+        address = next(
+            (
+                it["address"]
+                for it in g["items"]
+                if it["address"] and not it["address"].startswith("BBL ")
+            ),
+            None,
+        )
+        g["label"] = address or (f"BBL {first['bbl']}" if first["bbl"] else first["title"])
     out.sort(key=lambda g: _actionability_key(g["items"][0]))
     return out
 
@@ -572,6 +585,7 @@ def _render_item(
     hearing_guidance: str | None = None,
     action_context: dict[str, str] | None = None,
     action_contacts: dict[str, str] | None = None,
+    why_matters: dict[str, str] | None = None,
     subscriber_council_member: str | None = None,
 ) -> None:
     _e = expand or (lambda t: t)
@@ -579,6 +593,9 @@ def _render_item(
     out.append(f"**{_e(item['title'])}**{tag}")
     if item["summary"]:
         out.append(_e(item["summary"]))
+    # Plain-English "why this matters to you" line — connects the item to the reader's life.
+    if why_matters and (why := why_matters.get(item.get("action_type") or "")):
+        out.append(f"- **Why this matters:** {why}")
     # Caller-supplied background blurb for this action type — visually separated as a
     # blockquote so it reads as general context, not a claim about this specific filing.
     if action_context and (blurb := action_context.get(item.get("action_type") or "")):
@@ -632,6 +649,7 @@ def _render_lead_item(
     hearing_guidance: str | None = None,
     action_context: dict[str, str] | None = None,
     action_contacts: dict[str, str] | None = None,
+    why_matters: dict[str, str] | None = None,
     subscriber_council_member: str | None = None,
 ) -> None:
     """One compact entry in the 'Act on this' lead: title, when, and the verify line."""
@@ -643,6 +661,8 @@ def _render_lead_item(
     if item["citations"]:
         links = " · ".join(f"[{_citation_label(c)}]({c['url']})" for c in item["citations"])
         out.append(f"- Verify: {links}")
+    if why_matters and (why := why_matters.get(item.get("action_type") or "")):
+        out.append(f"- **Why this matters:** {why}")
     if action_context and (blurb := action_context.get(item.get("action_type") or "")):
         out.append(f"> {blurb}")
     if action_contacts and (contact := action_contacts.get(item.get("action_type") or "")):
@@ -667,6 +687,7 @@ def render_markdown(
     hearing_guidance: str | None = None,
     action_context: dict[str, str] | None = None,
     action_contacts: dict[str, str] | None = None,
+    why_matters: dict[str, str] | None = None,
     subscriber_council_member: str | None = None,
 ) -> str:
     """Render the digest into the plain-English, verifiable email body (Markdown).
@@ -687,6 +708,8 @@ def render_markdown(
         action_context = embedded.get("action_context")
     if action_contacts is None:
         action_contacts = embedded.get("action_contacts")
+    if why_matters is None:
+        why_matters = embedded.get("why_matters")
     if subscriber_council_member is None:
         subscriber_council_member = embedded.get("subscriber_council_member")
 
@@ -770,6 +793,7 @@ def render_markdown(
                     hearing_guidance=hearing_guidance,
                     action_context=action_context,
                     action_contacts=action_contacts,
+                    why_matters=why_matters,
                     subscriber_council_member=subscriber_council_member,
                 )
                 at_risk_rendered_ids.add(item.get("source_record_id"))
@@ -791,6 +815,7 @@ def render_markdown(
                 hearing_guidance=hearing_guidance,
                 action_context=action_context,
                 action_contacts=action_contacts,
+                why_matters=why_matters,
                 subscriber_council_member=subscriber_council_member,
             )
 
@@ -817,6 +842,7 @@ def render_markdown(
                 out,
                 expand=_expand,
                 action_context=action_context,
+                why_matters=why_matters,
                 subscriber_council_member=subscriber_council_member,
             )
 
@@ -862,6 +888,7 @@ def render_markdown(
                     hearing_guidance=hearing_guidance,
                     action_context=action_context,
                     action_contacts=action_contacts,
+                    why_matters=why_matters,
                     subscriber_council_member=subscriber_council_member,
                 )
 
@@ -901,6 +928,7 @@ def render_markdown(
                 hearing_guidance=hearing_guidance,
                 action_context=action_context,
                 action_contacts=action_contacts,
+                why_matters=why_matters,
                 subscriber_council_member=subscriber_council_member,
             )
 
@@ -927,6 +955,7 @@ def render_markdown(
                 hearing_guidance=hearing_guidance,
                 action_context=action_context,
                 action_contacts=action_contacts,
+                why_matters=why_matters,
                 subscriber_council_member=subscriber_council_member,
             )
 
