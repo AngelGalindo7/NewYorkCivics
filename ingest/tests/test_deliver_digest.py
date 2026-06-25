@@ -300,6 +300,50 @@ def test_at_risk_item_is_not_shown_twice(digest):
     assert body.count("Immediately hazardous violation (Class C)") == 1
 
 
+def test_near_you_feed_caps_buildings_and_links_the_remainder():
+    from ingest.deliver.digest import FEED_NEAR_YOU_CAP
+    from ingest.extract.schemas import Citation, CivicEvent, RecordStatus
+
+    # A busy week with more buildings than the cap: only the closest FEED_NEAR_YOU_CAP
+    # render in full; the rest are summarized in a compact "More nearby" list that still
+    # links each building's record (nothing hidden behind a dead link).
+    def _bldg(i: int) -> CivicEvent:
+        # Date-less context records (no deadline, no event_date) live only in the feed —
+        # not the lead, not "Deadline passed", not "Happened this week".
+        return CivicEvent(
+            source_id="test_src",
+            source_record_id=f"B{i}",
+            bbl=f"100000{i:04d}",
+            action_type="building_energy_grade",
+            title=f"Building grade {i}",
+            summary=f"Grade for building {i}.",
+            address=f"{i} FEED ST",
+            confidence=1.0,
+            status=RecordStatus.ACCEPTED,
+            citations=[
+                Citation(
+                    kind="data_source",
+                    verifies="exact_record",
+                    label=f"r{i}",
+                    url=f"https://x/B{i}",
+                )
+            ],
+        )
+
+    events = [_bldg(i) for i in range(FEED_NEAR_YOU_CAP + 2)]  # two over the cap
+    digest = build_digest(SAMPLE_SUBSCRIBER, {BAND_ON_YOUR_BLOCK: events}, asof=ASOF)
+    body = render_markdown(digest)
+
+    assert "## Near you" in body
+    near = body.split("## Near you", 1)[1]
+    full_part, _, remainder_part = near.partition("### More nearby")
+    # Exactly the cap renders in full (one "####" building header each).
+    assert full_part.count("#### ") == FEED_NEAR_YOU_CAP
+    # The two over the cap are summarized as compact linked one-liners.
+    assert "### More nearby" in body
+    assert remainder_part.count("https://x/B") == 2
+
+
 def _review_event_with_future_deadline(asof=ASOF):
     # A needs-verification record (REVIEW status) that DOES carry a future, still-open
     # deadline — so its actionable_date is non-None and only the verification guard

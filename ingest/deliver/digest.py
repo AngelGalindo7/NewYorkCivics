@@ -57,6 +57,11 @@ LEAD_MAX_DAYS = 60
 # How far back a lapsed deadline can be and still appear in "Deadline passed".
 _OVERDUE_LOOKBACK_DAYS = 90
 
+# How many building threads the "Near you" feed renders in full before the rest are
+# summarized in a compact "More nearby" list. Keeps a busy week scannable (the lead
+# sections are never capped — the most consequential items always show in full).
+FEED_NEAR_YOU_CAP = 5
+
 # Reader-facing labels + display order for the three proximity bands.
 _BAND_LABELS = (
     (BAND_ON_YOUR_BLOCK, "On your block"),
@@ -214,6 +219,18 @@ def _citation_label(citation: dict[str, Any]) -> str:
     if citation.get("verifies") in ("exact_record", "exact_building"):
         return label + " ✓"
     return label + " (search)"
+
+
+def _first_link(items: list[dict[str, Any]]) -> str | None:
+    """A single strongest-proof markdown link for a compact one-line building summary.
+
+    Citations are pre-sorted strongest-first, so the first item's first citation is the
+    best available proof. Returns None when no item carries a link.
+    """
+    for item in items:
+        for citation in item["citations"]:
+            return f"[{_citation_label(citation)}]({citation['url']})"
+    return None
 
 
 def _to_item(event: CivicEvent, band: str, asof: date) -> dict[str, Any]:
@@ -793,31 +810,34 @@ def render_markdown(
     # "Near you": the proximity-banded, building-threaded feed. Items already shown in the
     # "Act on this" lead or the "Right next to you" section are skipped here to avoid showing
     # the same event twice; a building whose every item already appeared above is omitted.
-    any_near = any(
-        it.get("source_record_id") not in shown_ids
+    # To keep a busy week scannable, only the closest FEED_NEAR_YOU_CAP building threads
+    # render in full; the rest are summarized in a compact "More nearby" list that still
+    # links each building's record (nothing is hidden behind a link we can't honor — there
+    # is no web archive yet, so the remainder links straight to the City record).
+    feed = [
+        (section["label"], building, visible)
         for section in digest["sections"]
         for building in section["buildings"]
-        for it in building["items"]
-    )
-    if any_near:
+        if (
+            visible := [
+                it for it in building["items"] if it.get("source_record_id") not in shown_ids
+            ]
+        )
+    ]
+    if feed:
         out.append("## Near you")
         out.append("")
-    for section in digest["sections"]:
-        rendered_any = False
-        for building in section["buildings"]:
-            items = building["items"]
-            visible = [it for it in items if it.get("source_record_id") not in shown_ids]
-            if not visible:
-                continue
-            if not rendered_any:
-                out.append(f"### {section['label']}")
+        current_label: str | None = None
+        for label, building, visible in feed[:FEED_NEAR_YOU_CAP]:
+            if label != current_label:
+                out.append(f"### {label}")
                 out.append("")
-                rendered_any = True
+                current_label = label
             out.append(f"#### {building['label']}")
             if len(visible) > 1:
                 out.append(f"_{len(visible)} updates on this building_")
             out.append("")
-            note = _corroboration_note(items)
+            note = _corroboration_note(building["items"])
             if note:
                 out.append(note)
                 out.append("")
@@ -831,6 +851,21 @@ def render_markdown(
                     action_contacts=action_contacts,
                     subscriber_council_member=subscriber_council_member,
                 )
+
+        remainder = feed[FEED_NEAR_YOU_CAP:]
+        if remainder:
+            out.append("### More nearby")
+            out.append(
+                f"_{len(remainder)} more building{'s' if len(remainder) != 1 else ''} nearby with"
+                " activity this week — each links to its City record._"
+            )
+            out.append("")
+            for label, building, visible in remainder:
+                count = f"{len(visible)} update{'s' if len(visible) != 1 else ''}"
+                link = _first_link(visible)
+                suffix = f" · {link}" if link else ""
+                out.append(f"- **{building['label']}** ({label}) — {count}{suffix}")
+            out.append("")
 
     # "Later": items with a still-open action window more than LEAD_MAX_DAYS out —
     # they matter but aren't urgent enough to headline this week's digest. Suppress any
