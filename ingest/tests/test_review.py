@@ -9,7 +9,7 @@ honest; and the whole thing survives a JSON round-trip between processes.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 
@@ -335,4 +335,52 @@ def test_main_reviews_flagged_item_even_when_flag_understated(tmp_path, monkeypa
     written = list(sink.glob("*.md"))
     assert len(written) == 1
     body = written[0].read_text(encoding="utf-8")
+    assert "[needs verification]" not in body
+
+
+def _hazardous_violation() -> CivicEvent:
+    """A confirmed (ACCEPTED) hazardous violation on the subscriber's block — the trigger
+    for the 'Right next to you' lead. Overdue, so it stays in its thread, not the lead."""
+    return CivicEvent(
+        source_id="test_hpd",
+        source_record_id="VHAZ",
+        bbl=SUBSCRIBER_BBL,
+        action_type="violation",
+        title="Immediately hazardous violation (Class C) — HPD",
+        summary="HPD cited this building.",
+        address="123 EAST 116 STREET",
+        event_date=ASOF - timedelta(days=3),
+        deadline=ASOF - timedelta(days=1),
+        confidence=1.0,
+        status=RecordStatus.ACCEPTED,
+        citations=[
+            Citation(
+                kind="data_source",
+                verifies="exact_record",
+                label="HPD violation",
+                url="https://example.test/hpd/VHAZ",
+            )
+        ],
+        extras={"hazardous": True},
+    )
+
+
+def test_at_risk_lead_survives_review_round_trip(tmp_path):
+    # The hazardous-violation lead must survive dump -> separate-process load -> review:
+    # rejecting the flagged signal on the same building must not drop the confirmed hazard
+    # from the "Right next to you" lead, and the re-derived keys stay consistent.
+    events = [_hazardous_violation(), _flagged_undated_signal()]
+    matched = match_subscriber(SAMPLE_SUBSCRIBER, events)
+    digest = build_digest(SAMPLE_SUBSCRIBER, matched, asof=ASOF)
+    assert digest["at_risk_building_keys"] == [f"bbl:{SUBSCRIBER_BBL}"]
+
+    path = dump_pending(digest, SAMPLE_SUBSCRIBER, review_dir=tmp_path)
+    loaded, _ = load_pending(path)
+    # Reject the flagged signal; keep the confirmed hazard.
+    reviewed = review_digest(loaded, decide=lambda item: not item["needs_verification"])
+
+    assert reviewed["at_risk_building_keys"] == [f"bbl:{SUBSCRIBER_BBL}"]
+    body = render_markdown(reviewed)
+    assert "## Right next to you" in body
+    assert "Immediately hazardous violation (Class C)" in body
     assert "[needs verification]" not in body

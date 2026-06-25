@@ -289,6 +289,10 @@ def _hpd_violation_to_event(rec: Mapping[str, Any]) -> CivicEvent:
         ],
         extras={
             "violation_class": vclass,
+            # City-agnostic severity flag the Deliver core reads to decide whether a
+            # confirmed violation is serious enough to lead the digest. Class B/C are
+            # HPD's hazardous / immediately-hazardous tiers; the core never sees the class.
+            "hazardous": vclass in ("B", "C"),
             "nov_description": rec.get("novdescription"),
             "current_status": rec.get("currentstatus"),
             "apartment": rec.get("apartment"),

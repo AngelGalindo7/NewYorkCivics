@@ -25,7 +25,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
-from ingest.deliver.digest import ATTENTION_DEADLINE_DAYS
+from ingest.deliver.digest import ATTENTION_DEADLINE_DAYS, _is_hazardous_violation
 
 # Where pending (built-but-unreviewed) digests are parked between processes.
 DEFAULT_REVIEW_DIR = Path("out") / "review"
@@ -148,6 +148,16 @@ def _recompute_derived(digest: dict[str, Any]) -> None:
         1 for item in items if item.get("verifies") in _EXACT_VERIFIES
     )
     digest["needs_attention_count"] = sum(1 for item in items if _needs_attention(item, asof))
+    # The at-risk lead is a derived field too: re-derive it from the surviving buildings so
+    # the "Right next to you" lead can't point at a building review just emptied. (Today a
+    # hazardous violation is always ACCEPTED and never rejected, so this is belt-and-braces —
+    # but it keeps the field honest if that ever changes.)
+    digest["at_risk_building_keys"] = [
+        building["key"]
+        for section in digest.get("sections", [])
+        for building in section.get("buildings", [])
+        if any(_is_hazardous_violation(item) for item in building["items"])
+    ]
     # The subject is the email's H1 and a derived count — refresh it too, or the headline
     # keeps reporting pre-rejection totals over a recomputed body.
     digest["subject"] = _subject_line(digest["item_count"], digest["needs_attention_count"])

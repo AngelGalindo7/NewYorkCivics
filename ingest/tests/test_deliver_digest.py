@@ -142,18 +142,19 @@ def test_review_gate_blocks_send_until_cleared(tmp_path: Path, digest, monkeypat
 def test_render_is_nonempty_markdown(digest):
     body = render_markdown(digest)
     assert body.startswith("# ")
-    assert "On your block" in body
+    # The sample's only building carries a confirmed Class C violation, so it leads the
+    # digest under "Right next to you" rather than sitting in the proximity feed.
+    assert "## Right next to you" in body
 
 
-def test_act_on_this_leads_before_near_you(digest):
-    # The forward-looking lead must sit above the proximity feed so the most useful
-    # thing (what you can still act on) is the first thing a reader sees.
+def test_at_risk_building_leads_then_act_on_this(digest):
+    # A confirmed serious violation near the reader is the most consequential item, so its
+    # building leads the digest; the still-actionable hearing follows in "Act on this". Both
+    # sit below the personalization line / stats hook at the very top.
     body = render_markdown(digest)
+    at_risk_idx = body.index("## Right next to you")
     act_idx = body.index("## Act on this")
-    near_idx = body.index("## Near you")
-    assert act_idx < near_idx
-    # And both sit below the personalization line / stats hook at the very top.
-    assert body.index("For the address you gave us") < act_idx
+    assert body.index("For the address you gave us") < at_risk_idx < act_idx
 
 
 def test_act_on_this_holds_future_hearing_not_overdue(digest):
@@ -176,6 +177,127 @@ def test_displacement_never_leads_and_is_flagged(digest):
     displacement = [it for it in _all_items(digest) if "displacement" in it["title"].lower()]
     assert len(displacement) == 1
     assert displacement[0]["needs_verification"] is True
+
+
+def _violation(rid, bbl, *, hazardous, addr, status=None):
+    from ingest.extract.schemas import Citation, CivicEvent, RecordStatus
+
+    return CivicEvent(
+        source_id="test_hpd",
+        source_record_id=rid,
+        bbl=bbl,
+        action_type="violation",
+        title="Housing-maintenance violation",
+        summary=f"HPD cited {addr}.",
+        address=addr,
+        event_date=ASOF - timedelta(days=3),
+        deadline=ASOF - timedelta(days=1),  # overdue -> not actionable, stays in the thread
+        confidence=1.0,
+        status=status or RecordStatus.ACCEPTED,
+        citations=[
+            Citation(kind="data_source", verifies="exact_record", label="r", url=f"https://x/{rid}")
+        ],
+        extras={"hazardous": hazardous},
+    )
+
+
+def _simple_event(rid, bbl, action_type, *, addr):
+    from ingest.extract.schemas import Citation, CivicEvent, RecordStatus
+
+    return CivicEvent(
+        source_id="test_src",
+        source_record_id=rid,
+        bbl=bbl,
+        action_type=action_type,
+        title=f"{action_type} at {addr}",
+        summary=f"{action_type} record for {addr}.",
+        address=addr,
+        event_date=ASOF - timedelta(days=2),
+        deadline=ASOF - timedelta(days=1),
+        confidence=1.0,
+        status=RecordStatus.ACCEPTED,
+        citations=[
+            Citation(kind="data_source", verifies="exact_record", label="r", url=f"https://x/{rid}")
+        ],
+        extras={},
+    )
+
+
+def test_only_confirmed_hazardous_violation_building_leads():
+    # The lead trigger is a confirmed serious violation. A building with only a permit, or
+    # only a complaint, must NOT lead — a permit alone isn't alarming and a complaint is an
+    # unconfirmed report. Only the building with the hazardous violation is at-risk.
+    events = [
+        _violation("HAZ1", "1000000001", hazardous=True, addr="1 HAZARD ST"),
+        _simple_event("PERM1", "1000000002", "permit", addr="2 PERMIT AVE"),
+        _simple_event("CMPL1", "1000000003", "habitability_complaints", addr="3 COMPLAINT RD"),
+    ]
+    digest = build_digest(SAMPLE_SUBSCRIBER, {BAND_ON_YOUR_BLOCK: events}, asof=ASOF)
+    assert digest["at_risk_building_keys"] == ["bbl:1000000001"]
+
+    body = render_markdown(digest)
+    assert "## Right next to you" in body
+    # Isolate just the "Right next to you" section (up to the next ## heading).
+    at_risk_block = body.split("## Right next to you", 1)[1].split("\n## ", 1)[0]
+    assert "1 HAZARD ST" in at_risk_block
+    assert "2 PERMIT AVE" not in at_risk_block
+    assert "3 COMPLAINT RD" not in at_risk_block
+
+
+def test_non_hazardous_or_unconfirmed_violation_does_not_lead():
+    from ingest.extract.schemas import RecordStatus
+
+    # A verified-but-routine violation is not lead-worthy; neither is an unconfirmed
+    # (needs-verification) violation, even if it would be hazardous — a headline must be a
+    # confirmed fact.
+    events = [
+        _violation("ROUTINE", "1000000010", hazardous=False, addr="10 ROUTINE ST"),
+        _violation(
+            "UNCONF", "1000000011", hazardous=True, addr="11 UNCONF ST", status=RecordStatus.REVIEW
+        ),
+    ]
+    digest = build_digest(SAMPLE_SUBSCRIBER, {BAND_ON_YOUR_BLOCK: events}, asof=ASOF)
+    assert digest["at_risk_building_keys"] == []
+    assert "## Right next to you" not in render_markdown(digest)
+
+
+def test_future_deadline_hazard_no_empty_header_no_duplicate():
+    from ingest.extract.schemas import Citation, CivicEvent, RecordStatus
+
+    # A hazardous violation with a FUTURE correct-by date is actionable, so it leads
+    # "Act on this". The "Right next to you" header must not print empty, and the item must
+    # not also re-render in "Later"/"Happened this week".
+    ev = CivicEvent(
+        source_id="test_hpd",
+        source_record_id="FUT1",
+        bbl="1000000020",
+        action_type="violation",
+        title="Future hazard violation",
+        summary="Cited, correct-by ahead.",
+        address="20 FUTURE ST",
+        event_date=ASOF - timedelta(days=1),
+        deadline=ASOF + timedelta(days=5),  # future -> actionable -> leads "Act on this"
+        confidence=1.0,
+        status=RecordStatus.ACCEPTED,
+        citations=[
+            Citation(kind="data_source", verifies="exact_record", label="r", url="https://x/FUT1")
+        ],
+        extras={"hazardous": True},
+    )
+    digest = build_digest(SAMPLE_SUBSCRIBER, {BAND_ON_YOUR_BLOCK: [ev]}, asof=ASOF)
+    body = render_markdown(digest)
+    assert "## Right next to you" not in body  # nothing to show there -> no empty header
+    assert "## Act on this" in body
+    assert body.count("Future hazard violation") == 1  # rendered exactly once
+
+
+def test_at_risk_item_is_not_shown_twice(digest):
+    # An overdue hazardous violation that leads "Right next to you" must not also appear in
+    # "Deadline passed" or "Near you" — each event is shown exactly once. The violation item's
+    # title is its fingerprint (the displacement signal cites the same record but reads
+    # differently), so the title must appear exactly once in the whole body.
+    body = render_markdown(digest)
+    assert body.count("Immediately hazardous violation (Class C)") == 1
 
 
 def _review_event_with_future_deadline(asof=ASOF):
