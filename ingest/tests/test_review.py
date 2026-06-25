@@ -154,6 +154,50 @@ def test_dump_then_load_round_trips_render(tmp_path, digest):
             assert value is None or isinstance(value, date)
 
 
+def test_render_options_survive_review_round_trip(tmp_path):
+    # The plain-English help text rides on the digest under render_options; it must survive
+    # the dump -> separate-process load -> review -> send round trip, so the delivered email
+    # keeps its term definitions instead of silently dropping them (the delivery-bug fix).
+    ev = CivicEvent(
+        source_id="test_src",
+        source_record_id="RT-1",
+        bbl=SUBSCRIBER_BBL,
+        action_type="land_use_hearing",
+        title="ULURP hearing: application review",
+        summary="Community board review under ULURP procedures.",
+        address=str(SAMPLE_SUBSCRIBER["address"]),
+        event_date=ASOF,
+        confidence=1.0,
+        status=RecordStatus.ACCEPTED,
+        citations=[
+            Citation(
+                kind="data_source",
+                verifies="exact_record",
+                label="ULURP record",
+                url="https://example.com/ulurp/RT-1",
+            )
+        ],
+    )
+    matched = match_subscriber(SAMPLE_SUBSCRIBER, [ev])
+    built = build_digest(SAMPLE_SUBSCRIBER, matched, asof=ASOF)
+    built["render_options"] = {
+        "glossary": {"ULURP": "Uniform Land Use Review Procedure"},
+        # The "how to respond" prompt is the highest-value help text the bug dropped.
+        "action_contacts": {"land_use_hearing": "Call CB11 at 212-831-8929 to comment."},
+    }
+
+    path = dump_pending(built, SAMPLE_SUBSCRIBER, review_dir=tmp_path)
+    loaded_digest, _ = load_pending(path)
+
+    assert loaded_digest.get("render_options") == built["render_options"]
+    # Cleared by the reviewer, the loaded digest still renders the embedded help text:
+    # the glossary expansion and the action contact must both survive the round trip.
+    reviewed = review_digest(loaded_digest, decide=lambda item: True)
+    body = render_markdown(reviewed)
+    assert "ULURP (Uniform Land Use Review Procedure)" in body
+    assert "**How to respond:** Call CB11 at 212-831-8929 to comment." in body
+
+
 def test_main_reviews_pending_and_writes_digest(tmp_path, digest, monkeypatch):
     _gate_on(monkeypatch)
     sink = tmp_path / "digests"
