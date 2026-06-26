@@ -703,8 +703,13 @@ def gather_events() -> tuple[list[CivicEvent], bool]:
         events = gather_live_events(
             include_grades=True,
             include_311=True,
-            include_cb_agenda=True,
-            include_ulurp_packet=True,
+            # CB11 agendas: re-enable when GOOGLE_API_KEY has live Gemini credits.
+            # Without credits every PDF attempt fails 429 and costs ~3s dead time.
+            include_cb_agenda=False,
+            # a836-zap.nyc.gov is an internal NYC server unreachable externally;
+            # every fetch fails DNS and costs ~0.75s — disable until CEQR Access
+            # connector replaces this path.
+            include_ulurp_packet=False,
             include_dob_now=True,
             include_permitted_events=True,
         )
