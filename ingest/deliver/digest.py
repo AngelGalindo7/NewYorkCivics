@@ -31,6 +31,7 @@ from Extract / the structured connectors (cached), never regenerated here.
 
 from __future__ import annotations
 
+import dataclasses
 import re
 from collections.abc import Callable
 from datetime import date, timedelta
@@ -591,31 +592,45 @@ def _corroboration_note(items: list[dict[str, Any]]) -> str | None:
     return f"This building received a new permit and has {kind}."
 
 
+@dataclasses.dataclass(frozen=True, slots=True)
+class _RenderCtx:
+    """Stateless render options threaded as one object instead of five separate params.
+
+    Adding a new option requires editing only _RenderCtx plus the one site that builds it
+    in render_markdown — not every helper signature and every call site.
+    """
+
+    hearing_guidance: str | None = None
+    action_context: dict[str, str] | None = None
+    action_contacts: dict[str, str] | None = None
+    why_matters: dict[str, str] | None = None
+    subscriber_council_member: str | None = None
+
+
 def _render_item(
     item: dict[str, Any],
     out: list[str],
     *,
     expand: Callable[[str], str] | None = None,
-    hearing_guidance: str | None = None,
-    action_context: dict[str, str] | None = None,
-    action_contacts: dict[str, str] | None = None,
-    why_matters: dict[str, str] | None = None,
-    subscriber_council_member: str | None = None,
+    ctx: _RenderCtx | None = None,
 ) -> None:
     _e = expand or (lambda t: t)
+    _ctx = ctx or _RenderCtx()
     tag = " **[needs verification]**" if item["needs_verification"] else ""
     out.append(f"**{_e(item['title'])}**{tag}")
     if item["summary"]:
         out.append(_e(item["summary"]))
     # Plain-English "why this matters to you" line — connects the item to the reader's life.
-    if why_matters and (why := why_matters.get(item.get("action_type") or "")):
+    if _ctx.why_matters and (why := _ctx.why_matters.get(item.get("action_type") or "")):
         out.append(f"- **Why this matters:** {why}")
     # Caller-supplied background blurb for this action type — visually separated as a
     # blockquote so it reads as general context, not a claim about this specific filing.
-    if action_context and (blurb := action_context.get(item.get("action_type") or "")):
+    if _ctx.action_context and (blurb := _ctx.action_context.get(item.get("action_type") or "")):
         out.append(f"> {blurb}")
     # Resident action prompt — who to call / what to do for this specific action type.
-    if action_contacts and (contact := action_contacts.get(item.get("action_type") or "")):
+    if _ctx.action_contacts and (
+        contact := _ctx.action_contacts.get(item.get("action_type") or "")
+    ):
         out.append(f"- **How to respond:** {contact}")
     if item["deadline_note"]:
         out.append(f"- **Action deadline:** {item['deadline_note']}")
@@ -632,7 +647,7 @@ def _render_item(
         )
     if item.get("action_type") == "council_vote" and item.get("extras", {}).get("roll_call"):
         roll_call: dict[str, str] = item["extras"]["roll_call"]
-        member = subscriber_council_member
+        member = _ctx.subscriber_council_member
         lines: list[str] = []
         if member and member in roll_call:
             lines.append(f"- **Council Member {member} voted {roll_call[member]}**")
@@ -642,7 +657,7 @@ def _render_item(
             lines.append(f"- Council Member {name} voted {vote}")
         out.extend(lines)
     if (
-        hearing_guidance
+        _ctx.hearing_guidance
         and "hearing" in (item.get("action_type") or "")
         and re.search(
             r"liquor|sla",
@@ -650,7 +665,7 @@ def _render_item(
             re.IGNORECASE,
         )
     ):
-        out.append(hearing_guidance)
+        out.append(_ctx.hearing_guidance)
     out.append("")
 
 
@@ -660,14 +675,11 @@ def _render_lead_item(
     out: list[str],
     *,
     expand: Callable[[str], str] | None = None,
-    hearing_guidance: str | None = None,
-    action_context: dict[str, str] | None = None,
-    action_contacts: dict[str, str] | None = None,
-    why_matters: dict[str, str] | None = None,
-    subscriber_council_member: str | None = None,
+    ctx: _RenderCtx | None = None,
 ) -> None:
     """One compact entry in the 'Act on this' lead: title, when, and the verify line."""
     _e = expand or (lambda t: t)
+    _ctx = ctx or _RenderCtx()
     out.append(f"**{_e(item['title'])}**")
     when = item["actionable_date"]
     if when is not None:
@@ -675,14 +687,16 @@ def _render_lead_item(
     if item["citations"]:
         links = " · ".join(f"[{_citation_label(c)}]({c['url']})" for c in item["citations"])
         out.append(f"- Verify: {links}")
-    if why_matters and (why := why_matters.get(item.get("action_type") or "")):
+    if _ctx.why_matters and (why := _ctx.why_matters.get(item.get("action_type") or "")):
         out.append(f"- **Why this matters:** {why}")
-    if action_context and (blurb := action_context.get(item.get("action_type") or "")):
+    if _ctx.action_context and (blurb := _ctx.action_context.get(item.get("action_type") or "")):
         out.append(f"> {blurb}")
-    if action_contacts and (contact := action_contacts.get(item.get("action_type") or "")):
+    if _ctx.action_contacts and (
+        contact := _ctx.action_contacts.get(item.get("action_type") or "")
+    ):
         out.append(f"- **How to respond:** {contact}")
     if (
-        hearing_guidance
+        _ctx.hearing_guidance
         and "hearing" in (item.get("action_type") or "")
         and re.search(
             r"liquor|sla",
@@ -690,7 +704,7 @@ def _render_lead_item(
             re.IGNORECASE,
         )
     ):
-        out.append(hearing_guidance)
+        out.append(_ctx.hearing_guidance)
     out.append("")
 
 
@@ -726,6 +740,14 @@ def render_markdown(
         why_matters = embedded.get("why_matters")
     if subscriber_council_member is None:
         subscriber_council_member = embedded.get("subscriber_council_member")
+
+    ctx = _RenderCtx(
+        hearing_guidance=hearing_guidance,
+        action_context=action_context,
+        action_contacts=action_contacts,
+        why_matters=why_matters,
+        subscriber_council_member=subscriber_council_member,
+    )
 
     # Acronym expansion: track which keys have already been expanded (first-use only)
     # so the same acronym is defined on first appearance, never repeated.
@@ -800,16 +822,7 @@ def render_markdown(
                 out.append(note)
                 out.append("")
             for item in visible:
-                _render_item(
-                    item,
-                    out,
-                    expand=_expand,
-                    hearing_guidance=hearing_guidance,
-                    action_context=action_context,
-                    action_contacts=action_contacts,
-                    why_matters=why_matters,
-                    subscriber_council_member=subscriber_council_member,
-                )
+                _render_item(item, out, expand=_expand, ctx=ctx)
                 at_risk_rendered_ids.add(item.get("source_record_id"))
 
     # Anything already rendered in a lead section above is suppressed in the feed sections
@@ -821,17 +834,7 @@ def render_markdown(
         out.append("## Act on this")
         out.append("")
         for item in lead:
-            _render_lead_item(
-                item,
-                asof,
-                out,
-                expand=_expand,
-                hearing_guidance=hearing_guidance,
-                action_context=action_context,
-                action_contacts=action_contacts,
-                why_matters=why_matters,
-                subscriber_council_member=subscriber_council_member,
-            )
+            _render_lead_item(item, asof, out, expand=_expand, ctx=ctx)
 
     # "Deadline passed": recently lapsed items — listed so the reader knows what
     # closed, without implying an open action window. An item already shown in a lead
@@ -849,15 +852,13 @@ def render_markdown(
         )
         out.append("")
         for item in overdue:
-            # action_contacts deliberately omitted — showing a contact prompt for
-            # a closed deadline would mislead the reader into thinking action is still possible.
+            # action_contacts omitted — a contact prompt for a closed deadline would
+            # mislead the reader into thinking action is still possible.
             _render_item(
                 item,
                 out,
                 expand=_expand,
-                action_context=action_context,
-                why_matters=why_matters,
-                subscriber_council_member=subscriber_council_member,
+                ctx=dataclasses.replace(ctx, action_contacts=None),
             )
 
     # "Near you": the proximity-banded, building-threaded feed. Items already shown in the
@@ -897,16 +898,7 @@ def render_markdown(
                 out.append(note)
                 out.append("")
             for item in visible:
-                _render_item(
-                    item,
-                    out,
-                    expand=_expand,
-                    hearing_guidance=hearing_guidance,
-                    action_context=action_context,
-                    action_contacts=action_contacts,
-                    why_matters=why_matters,
-                    subscriber_council_member=subscriber_council_member,
-                )
+                _render_item(item, out, expand=_expand, ctx=ctx)
 
         remainder = feed[FEED_NEAR_YOU_CAP:]
         if remainder:
@@ -936,17 +928,7 @@ def render_markdown(
         out.append(f"_These items have open action windows more than {LEAD_MAX_DAYS} days out._")
         out.append("")
         for item in later:
-            _render_lead_item(
-                item,
-                asof,
-                out,
-                expand=_expand,
-                hearing_guidance=hearing_guidance,
-                action_context=action_context,
-                action_contacts=action_contacts,
-                why_matters=why_matters,
-                subscriber_council_member=subscriber_council_member,
-            )
+            _render_lead_item(item, asof, out, expand=_expand, ctx=ctx)
 
     # "Happened this week": events that occurred in the past 7 days with no open
     # action window — context only, not an invitation to act. Suppress any already shown
@@ -964,16 +946,7 @@ def render_markdown(
         )
         out.append("")
         for item in recent:
-            _render_item(
-                item,
-                out,
-                expand=_expand,
-                hearing_guidance=hearing_guidance,
-                action_context=action_context,
-                action_contacts=action_contacts,
-                why_matters=why_matters,
-                subscriber_council_member=subscriber_council_member,
-            )
+            _render_item(item, out, expand=_expand, ctx=ctx)
 
     if digest["footnotes"]:
         out.append("---")
