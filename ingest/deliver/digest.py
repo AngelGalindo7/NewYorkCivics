@@ -277,8 +277,18 @@ def _is_actionable(item: dict[str, Any]) -> bool:
     A needs-verification item is never promoted to the lead — an unconfirmed
     correlation must not read as a headline fact. It still appears in its building
     thread below, flagged.
+
+    Procedural council/committee hearings with no specific building or address are
+    citywide meetings — they belong in the Near you feed as area context, not in the
+    actionable lead over genuinely local items.
     """
-    return item["actionable_date"] is not None and not item["needs_verification"]
+    if item["actionable_date"] is None or item["needs_verification"]:
+        return False
+    return not (
+        item.get("action_type") in ("council_hearing", "land_use_hearing")
+        and not item.get("bbl")
+        and not item.get("address")
+    )
 
 
 def _is_hazardous_violation(item: dict[str, Any]) -> bool:
@@ -428,6 +438,10 @@ def build_digest(
         it
         for it in raw_items
         if not (it["event_date"] is not None and it["event_date"] < asof and it["deadline"] is None)
+        and not (
+            it["deadline"] is not None
+            and it["deadline"] < asof - timedelta(days=_OVERDUE_LOOKBACK_DAYS)
+        )
     ]
 
     # "Happened this week": past events that fell within the last 7 days — context only,
@@ -868,6 +882,8 @@ def render_markdown(
         out.append("")
         current_label: str | None = None
         for label, building, visible in feed[:FEED_NEAR_YOU_CAP]:
+            if not visible:
+                continue
             if label != current_label:
                 out.append(f"### {label}")
                 out.append("")
