@@ -26,6 +26,7 @@ from typing import Any
 from ingest.deliver.digest import build_digest, render_markdown
 from ingest.deliver.match import match_subscriber
 from ingest.deliver.send import send_digest
+from ingest.deliver.subscribers import load_subscribers
 from ingest.extract import extractor
 from ingest.extract.schemas import Citation, CivicEvent
 from ingest.observability import get_logger
@@ -201,8 +202,8 @@ NYC_WHY_MATTERS: dict[str, str] = {
     ),
 }
 
-# A sample confirmed subscriber in East Harlem (the only v1 user state — Rule 16).
-# In production this row comes from subscribers.py (signup -> GeoSupport geocode).
+# Dev-mode fallback subscriber used only when no real subscriber has been registered.
+# In production every row comes from add_subscriber() (signup -> geocode -> CSV).
 SAMPLE_SUBSCRIBER = {
     "email": "neighbor@example.com",
     "address": "123 East 116th Street, New York, NY 10029",
@@ -213,6 +214,24 @@ SAMPLE_SUBSCRIBER = {
     "community_district": "111",
     "council_member": "Salaam",
 }
+
+
+def _get_subscriber() -> dict[str, Any]:
+    """Return the first registered subscriber from CSV, or the dev-mode sample as fallback.
+
+    A real subscriber is one whose row was written by add_subscriber() — geocoded address,
+    real email. Falls back to SAMPLE_SUBSCRIBER only when the CSV is absent or empty, and
+    logs loudly so it's obvious no real reader exists yet.
+    """
+    subs = load_subscribers()
+    if subs:
+        return subs[0]
+    log.warning(
+        "No subscribers found in out/subscribers.csv — using built-in sample subscriber "
+        "(dev mode). Run add_subscriber() to register a real reader."
+    )
+    return SAMPLE_SUBSCRIBER
+
 
 _RECENT_PERMITS = (
     "job_type in ('A1','NB','DM') AND (issuance_date like '%2025' or issuance_date like '%2026')"
@@ -705,12 +724,18 @@ def run() -> None:
 
     from ingest.config import get_settings
     from ingest.deliver.review import dump_pending
+    from ingest.observability import enable_llm_observability
+
+    # Turn on Datadog LLM Observability before any model is called (no-op unless
+    # DD_API_KEY + DD_LLMOBS_ENABLED are set); auto-instruments the Gemini extractor.
+    enable_llm_observability()
 
     events, is_live = gather_events()
-    matched = match_subscriber(SAMPLE_SUBSCRIBER, events)
-    council_member: str | None = SAMPLE_SUBSCRIBER.get("council_member")  # type: ignore[assignment]
+    subscriber = _get_subscriber()
+    matched = match_subscriber(subscriber, events)
+    council_member: str | None = subscriber.get("council_member")  # type: ignore[assignment]
     digest = build_digest(
-        SAMPLE_SUBSCRIBER,
+        subscriber,
         matched,
         asof=datetime.now(UTC).date(),
         subscriber_council_member=council_member,
@@ -751,7 +776,7 @@ def run() -> None:
             )
             digest = {**digest, "review_required": False, "review_items": []}
         else:
-            pending_path = dump_pending(digest, SAMPLE_SUBSCRIBER)
+            pending_path = dump_pending(digest, subscriber)
             print(f"\nHUMAN-REVIEW QUEUE: {len(digest['review_items'])} item(s) need review:")
             for title in digest["review_items"]:
                 print(f"  - {title}")
@@ -760,7 +785,7 @@ def run() -> None:
             print("  python -m ingest.deliver.review")
             return
 
-    path = send_digest(digest, SAMPLE_SUBSCRIBER)
+    path = send_digest(digest, subscriber)
     print(f"\nDigest written to: {path}\n")
     print("----- rendered body -----")
     # render_options ride along on the digest, so the preview matches the delivered email.
