@@ -104,7 +104,7 @@ DATASET_DOB_NOW = "qnmk-7xra"  # DOB NOW: Build — approved permits (current sy
 
 SOCRATA_DOMAIN = "data.cityofnewyork.us"
 _PAGE = 1000  # Socrata default cap per request; we paginate by offset.
-_TIMEOUT = 60  # seconds; NYC Open Data can be slow on sorted scans.
+_TIMEOUT = 15  # seconds; fail fast so retries don't block the pipeline for minutes.
 
 
 @retry(

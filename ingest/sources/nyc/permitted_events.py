@@ -66,7 +66,7 @@ SOURCE_ID = "nyc_permitted_events"
 DATASET_ID = "tvpp-9vvx"
 SOCRATA_DOMAIN = "data.cityofnewyork.us"
 _PAGE = 1000
-_TIMEOUT = 60
+_TIMEOUT = 15  # seconds; fail fast so retries don't block the pipeline for minutes.
 
 # Target community district — Manhattan CD11 (East Harlem). GeoSearch returns
 # community_district as a 3-digit string (boro digit + 2-digit board), e.g. "111".
