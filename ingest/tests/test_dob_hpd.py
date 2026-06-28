@@ -13,6 +13,8 @@ field (the condo billing lot 7502) and ``bin__`` (the building, 1091648).
 
 from __future__ import annotations
 
+import pytest
+
 from ingest.sources.nyc.citations import audit_citation, bis_property, dob_permits_by_bin
 from ingest.sources.nyc.dob_hpd import (
     _dob_permit_to_event,
@@ -126,6 +128,8 @@ def _violation_record(vclass: str) -> dict:
         "lot": "30",
         "inspectiondate": "2026-05-01T00:00:00.000",
         "originalcorrectbydate": "2026-05-20T00:00:00.000",
+        "latitude": "40.7969",
+        "longitude": "-73.9410",
     }
 
 
@@ -136,3 +140,21 @@ def test_hpd_violation_exposes_hazardous_flag_for_class_b_and_c():
     assert _hpd_violation_to_event(_violation_record("C")).extras["hazardous"] is True
     assert _hpd_violation_to_event(_violation_record("B")).extras["hazardous"] is True
     assert _hpd_violation_to_event(_violation_record("A")).extras["hazardous"] is False
+
+
+def test_hpd_violation_populates_coordinates():
+    # The HPD Socrata dataset ships geocoded lat/lng; the connector must populate them
+    # so the proximity banding in match.py can place violations in the correct band
+    # rather than defaulting every violation to the widest "in your area" bucket.
+    ev = _hpd_violation_to_event(_violation_record("C"))
+    assert ev.latitude == pytest.approx(40.7969)
+    assert ev.longitude == pytest.approx(-73.9410)
+
+
+def test_hpd_violation_missing_coordinates_does_not_raise():
+    rec = _violation_record("C")
+    rec.pop("latitude")
+    rec.pop("longitude")
+    ev = _hpd_violation_to_event(rec)
+    assert ev.latitude is None
+    assert ev.longitude is None

@@ -1091,9 +1091,11 @@ def test_zap_summary_does_not_contain_bare_ulurp_label(digest):
 
 
 def test_stats_line_uses_walkable_area_framing(digest):
+    # Violations and permits within block/neighbourhood band carry the "5-minute walk"
+    # prefix; the claim is scoped to items we actually know are that close.
     line = digest["stats_line"]
     assert line is not None
-    assert line.startswith("This week within a 5-minute walk:")
+    assert "within a 5-minute walk" in line.lower()
 
 
 # ══════════════════════════════════════════════════════════════════════════════

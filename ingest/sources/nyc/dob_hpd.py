@@ -273,6 +273,8 @@ def _hpd_violation_to_event(rec: Mapping[str, Any]) -> CivicEvent:
             f"({severity}) housing-maintenance violation."
         ),
         address=addr,
+        latitude=_to_float(rec.get("latitude")),
+        longitude=_to_float(rec.get("longitude")),
         event_date=_parse_iso(rec.get("inspectiondate")),
         deadline=_parse_iso(rec.get("originalcorrectbydate")),
         confidence=1.0,  # structured feed, no extraction (Rule 1)

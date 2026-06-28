@@ -378,27 +378,34 @@ def _stats_line(all_items: list[dict[str, Any]], lead: list[dict[str, Any]]) -> 
     matches what a reader can actually act on. A needs-verification signal is never
     counted here — it is not a headline fact.
     """
-    permits = sum(1 for it in all_items if it["action_type"] == "permit")
-    violations = sum(1 for it in all_items if it["action_type"] == "violation")
+    # Scope physical-proximity counts to block + neighbourhood so "within a 5-minute walk"
+    # is an honest claim. Hearings are citywide events (held at City Hall / 250 Broadway)
+    # and get their own clause without a distance prefix.
+    nearby = [
+        it for it in all_items if it.get("band") in (BAND_ON_YOUR_BLOCK, BAND_IN_YOUR_NEIGHBORHOOD)
+    ]
+    permits = sum(1 for it in nearby if it["action_type"] == "permit")
+    violations = sum(1 for it in nearby if it["action_type"] == "violation")
     speakable = sum(1 for it in lead if _is_speakable(it["action_type"]))
 
-    clauses: list[str] = []
+    parts: list[str] = []
+    nearby_clauses: list[str] = []
     if permits:
-        clauses.append(f"{permits} new permit{'s' if permits != 1 else ''}")
+        nearby_clauses.append(f"{permits} new permit{'s' if permits != 1 else ''}")
     if violations:
-        clauses.append(f"{violations} hazardous violation{'s' if violations != 1 else ''}")
+        nearby_clauses.append(f"{violations} hazardous violation{'s' if violations != 1 else ''}")
+    if nearby_clauses:
+        parts.append("Within a 5-minute walk: " + " · ".join(nearby_clauses) + ".")
     if speakable:
-        # "upcoming" keeps the count honest: the window is still open, but the hearing
-        # itself may be weeks out — it is not necessarily happening "this week".
         noun = (
             "upcoming hearing you can still speak at"
             if speakable == 1
             else "upcoming hearings you can still speak at"
         )
-        clauses.append(f"{speakable} {noun}")
-    if not clauses:
+        parts.append(f"{speakable} {noun}.")
+    if not parts:
         return None
-    return "This week within a 5-minute walk: " + " · ".join(clauses) + "."
+    return " ".join(parts)
 
 
 def build_digest(
@@ -435,13 +442,21 @@ def build_digest(
     # a reader nothing to act on and clutters the feed. Events with a lapsed deadline
     # are kept because they belong in "Deadline passed". Events with no event_date
     # (e.g. a displacement signal) are always kept.
+    # Exception: open violations are always surfaced regardless of how long the correction
+    # deadline has lapsed. A landlord ignoring an overdue Class C order is more urgent,
+    # not less — filtering it out because the deadline is >90 days old is exactly backwards.
     all_items = [
         it
         for it in raw_items
-        if not (it["event_date"] is not None and it["event_date"] < asof and it["deadline"] is None)
-        and not (
-            it["deadline"] is not None
-            and it["deadline"] < asof - timedelta(days=_OVERDUE_LOOKBACK_DAYS)
+        if it.get("action_type") == "violation"
+        or (
+            not (
+                it["event_date"] is not None and it["event_date"] < asof and it["deadline"] is None
+            )
+            and not (
+                it["deadline"] is not None
+                and it["deadline"] < asof - timedelta(days=_OVERDUE_LOOKBACK_DAYS)
+            )
         )
     ]
 
@@ -466,9 +481,13 @@ def build_digest(
     # keys are listed in proximity order (sections run block -> neighborhood -> area); the
     # renderer resolves each key back to its building thread, so a building is never
     # duplicated and the items keep their single source of truth in ``sections``.
+    # "Right next to you" is a proximity claim — only buildings in the block or
+    # neighbourhood band qualify. Area-band hazards still appear in their proximity
+    # section further down; they do not lead the digest.
     at_risk_building_keys = [
         building["key"]
         for section in sections
+        if section["band"] in (BAND_ON_YOUR_BLOCK, BAND_IN_YOUR_NEIGHBORHOOD)
         for building in section["buildings"]
         if any(_is_hazardous_violation(it) for it in building["items"])
     ]
@@ -910,9 +929,14 @@ def render_markdown(
             out.append("")
             for label, building, visible in remainder:
                 count = f"{len(visible)} update{'s' if len(visible) != 1 else ''}"
+                bldg_label = building["label"]
+                # When the building resolved to a bare BBL (no address in source data),
+                # use the lead item's title so the reader sees what the entry is about.
+                lead_title = visible[0].get("title", "") if bldg_label.startswith("BBL ") else ""
                 link = _first_link(visible)
                 suffix = f" · {link}" if link else ""
-                out.append(f"- **{building['label']}** ({label}) — {count}{suffix}")
+                display = lead_title or bldg_label
+                out.append(f"- **{display}** ({label}) — {count}{suffix}")
             out.append("")
 
     # "Later": items with a still-open action window more than LEAD_MAX_DAYS out —
