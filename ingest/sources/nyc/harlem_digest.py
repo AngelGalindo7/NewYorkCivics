@@ -554,7 +554,10 @@ def gather_live_events(
         for ev in events
         if not (
             ev.action_type in ("council_hearing", "land_use_hearing")
-            and any(v in (ev.address or "").lower() for v in _DOWNTOWN_VENUES)
+            and any(
+                v in (ev.extras.get("location") or ev.address or "").lower()
+                for v in _DOWNTOWN_VENUES
+            )
         )
     ]
 
