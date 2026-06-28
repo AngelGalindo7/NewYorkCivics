@@ -535,6 +535,29 @@ def gather_live_events(
             log.warning("permitted events feed skipped (%s)", exc)
     zap_events = [e for e in events if e.source_id == "nyc_zap"]
     events = corroborate.corroborate_against_zap(events, zap_events)
+
+    # Only surface major-work permits (new building or major alteration).  Sidewalk
+    # sheds, scaffolding, and minor alterations are routine maintenance — not the
+    # signal a civic digest should lead on.
+    events = [
+        ev
+        for ev in events
+        if ev.action_type != "permit" or ev.extras.get("job_type") in ("A1", "NB")
+    ]
+
+    # Drop Legistar hearings held at generic City Hall / 250 Broadway venues.  Those
+    # are citywide proceedings with no East Harlem agenda — they clutter the digest
+    # until agenda enrichment can confirm a local item is on the docket.
+    _DOWNTOWN_VENUES = {"250 broadway", "city hall"}
+    events = [
+        ev
+        for ev in events
+        if not (
+            ev.action_type in ("council_hearing", "land_use_hearing")
+            and any(v in (ev.address or "").lower() for v in _DOWNTOWN_VENUES)
+        )
+    ]
+
     return events
 
 

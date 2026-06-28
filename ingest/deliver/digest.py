@@ -904,6 +904,7 @@ def render_markdown(
         out.append("## Near you")
         out.append("")
         current_label: str | None = None
+        near_you_rendered_ids: set[str] = set()
         for label, building, visible in feed[:FEED_NEAR_YOU_CAP]:
             if not visible:
                 continue
@@ -921,6 +922,16 @@ def render_markdown(
                 out.append("")
             for item in visible:
                 _render_item(item, out, expand=_expand, ctx=ctx)
+                # Real permits have no deadline — "Near you" and "Happened this week"
+                # would otherwise show the same card twice.  Only suppress the no-deadline
+                # case; permits with a lapsed or future deadline carry an action window
+                # and should still appear in "Deadline passed" / "Later".
+                if item.get("action_type") == "permit" and item.get("deadline") is None:
+                    near_you_rendered_ids.add(item.get("source_record_id") or "")
+
+        # Only permits are suppressed; other action types may still appear in
+        # "Happened this week" or "Later" to give context alongside their Near you card.
+        shown_ids = shown_ids | near_you_rendered_ids
 
         remainder = feed[FEED_NEAR_YOU_CAP:]
         if remainder:
