@@ -93,14 +93,14 @@ except ImportError:
 log = get_logger(__name__)
 
 SOURCE_ID_DOB = "nyc_dob_now"
-SOURCE_ID_DOB_NOW_BUILD = "nyc_dob_now_build"  # DOB NOW: Build portal (qnmk-7xra)
+SOURCE_ID_DOB_NOW_BUILD = "nyc_dob_now_build"  # DOB NOW: Build portal (rbx6-tga4)
 SOURCE_ID_HPD = "nyc_hpd_violations"
 SOURCE_ID_DISPLACEMENT = "nyc_displacement_signal"
 
 # Socrata dataset ids (the verifiable row link is built from these — see citations.py).
 DATASET_HPD = "wvxf-dwi5"  # HPD housing-maintenance violations
 DATASET_DOB = "ipu4-2q9a"  # DOB permit issuance (legacy BIS system)
-DATASET_DOB_NOW = "qnmk-7xra"  # DOB NOW: Build — approved permits (current system)
+DATASET_DOB_NOW = "rbx6-tga4"  # DOB NOW: Build — approved permits (current system)
 
 SOCRATA_DOMAIN = "data.cityofnewyork.us"
 _PAGE = 1000  # Socrata default cap per request; we paginate by offset.
@@ -381,8 +381,8 @@ def _dob_now_permit_to_event(rec: Mapping[str, Any]) -> CivicEvent:
     """Map one DOB NOW: Build approved-permit row to a CivicEvent.
 
     DOB NOW uses different field names and descriptive work_type strings rather
-    than the short job_type codes of the legacy BIS dataset.  No lat/lon is
-    available in this dataset; proximity matching falls back to community board.
+    than the short job_type codes of the legacy BIS dataset.  rbx6-tga4 provides
+    latitude/longitude so proximity matching works the same as HPD/ZAP events.
     """
     now = datetime.now(UTC)
     raw_work_type = rec.get("work_type") or ""
@@ -415,6 +415,8 @@ def _dob_now_permit_to_event(rec: Mapping[str, Any]) -> CivicEvent:
     # label falls back to "permit" when work_type is unknown; strip it so neither the
     # title nor summary repeats the word ("Permit permit" / "approved a permit permit").
     display_label = label if label and label.lower() != "permit" else ""
+    lat = rec.get("latitude")
+    lon = rec.get("longitude")
     return CivicEvent(
         source_id=SOURCE_ID_DOB_NOW_BUILD,
         source_record_id=record_id,
@@ -428,6 +430,8 @@ def _dob_now_permit_to_event(rec: Mapping[str, Any]) -> CivicEvent:
             f" at {addr or 'this building'}" + (f" for {owner.title()}" if owner else "") + "."
         ),
         address=addr,
+        latitude=float(lat) if lat is not None else None,
+        longitude=float(lon) if lon is not None else None,
         event_date=_parse_iso(rec.get("issued_date")),
         confidence=1.0,
         status=RecordStatus.ACCEPTED,
@@ -499,9 +503,10 @@ DOB_PERMITS_FEED = SocrataFeed(
     mapper=_dob_permit_to_event,
     scope_where=f"community_board = '{EAST_HARLEM_CB}'",
 )
-# DOB NOW: Build (qnmk-7xra) — the current permit issuance system.  Covers most
+# DOB NOW: Build (rbx6-tga4) — the current permit issuance system.  Covers most
 # new permits that ipu4-2q9a misses; the two feeds are unioned in gather_live_events.
 # c_b_no format: DOB NOW encodes community board as boro_digit + 2-digit board ("111" = MN CB11).
+# Verified 2026-06-27: c_b_no='111' returns current East Harlem permits from rbx6-tga4.
 # If this filter returns 0 rows a self-diagnostic logs real sample values (see iter_feed).
 DOB_NOW_PERMITS_FEED = SocrataFeed(
     source_id=SOURCE_ID_DOB_NOW_BUILD,

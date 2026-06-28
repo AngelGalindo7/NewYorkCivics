@@ -469,13 +469,17 @@ def test_fetch_events_fail_soft_returns_empty(monkeypatch):
 
 def test_discover_cd_hearings_maps_and_filters(monkeypatch):
     # Patch the narrow fetch seam so this test is free of window/timing dependence.
-    # Of the 4 calendar bodies, only "City Council" (1418199) and "Land Use" (1416853)
-    # match _CD_HEARING_KEYWORDS; Subcommittee on Zoning and Finance are dropped.
+    # "City Council" (1418199), "Land Use" (1416853), and "Subcommittee on Zoning and
+    # Franchises" (1417104, now in _LAND_USE_BODIES) are kept; Committee on Finance is dropped.
     monkeypatch.setattr(legistar, "_fetch_events", lambda start, end: list(CAL_EVENTS))
 
     results = discover_cd_hearings("MN11", days_ahead=400)
     assert all(isinstance(ev, CivicEvent) for ev in results)
-    assert {ev.source_record_id for ev in results} == {"event:1418199", "event:1416853"}
+    assert {ev.source_record_id for ev in results} == {
+        "event:1418199",
+        "event:1416853",
+        "event:1417104",
+    }
     assert all(ev.status == RecordStatus.ACCEPTED for ev in results)
 
 
@@ -536,6 +540,130 @@ def test_parse_calendar_html_end_to_end_to_civic(calendar_html):
     assert land_use.action_type == "land_use_hearing"
     assert land_use.status == RecordStatus.ACCEPTED
     assert "1416853" in land_use.citations[0].url
+
+
+def test_parse_calendar_html_captures_guid(calendar_html):
+    pytest.importorskip("bs4")
+    events = _parse_calendar_html(calendar_html)
+    council = next(e for e in events if e["EventId"] == 1418199)
+    # The GUID from the MeetingDetail href must be stored so the citation URL can use it.
+    assert council["EventGuid"] == "D910E40A-87A1-46F3-9B71-09D6989D9D20"
+
+
+def test_event_to_civic_uses_guid_in_citation_url(calendar_html):
+    pytest.importorskip("bs4")
+    events = _parse_calendar_html(calendar_html)
+    civic = _event_to_civic(next(e for e in events if e["EventId"] == 1418199))
+    url = civic.citations[0].url
+    assert "GUID=D910E40A-87A1-46F3-9B71-09D6989D9D20" in url
+    assert "Options=info|" in url
+
+
+def test_event_to_civic_guid_stored_in_extras(calendar_html):
+    pytest.importorskip("bs4")
+    events = _parse_calendar_html(calendar_html)
+    civic = _event_to_civic(next(e for e in events if e["EventId"] == 1418199))
+    assert civic.extras["event_guid"] == "D910E40A-87A1-46F3-9B71-09D6989D9D20"
+
+
+def test_event_to_civic_without_guid_has_basic_url():
+    # REST API events have no GUID; citation URL uses just ?ID= so we don't emit a broken link.
+    ev = _event_to_civic(SAMPLE_LU_EVENT)
+    assert "73601" in ev.citations[0].url
+    assert "GUID" not in ev.citations[0].url
+    assert ev.extras.get("event_guid") is None
+
+
+def test_scrape_meeting_agenda_parses_matter_names():
+    pytest.importorskip("bs4")
+    import ingest.sources.nyc.legistar as _leg
+
+    html = """
+    <html><body>
+    <tr id="ctl00_ContentPlaceHolder1_gridMain_ctl00__0">
+      <td>T2026-100</td><td>1</td><td>Smith</td><td>1</td><td></td>
+      <td>Rezoning 123 Main Street (C 260001 ZMM)</td>
+      <td>Land Use Application</td>
+    </tr>
+    <tr id="ctl00_ContentPlaceHolder1_gridMain_ctl00__1">
+      <td>T2026-101</td><td>1</td><td>Jones</td><td>2</td><td></td>
+      <td>Special permit 456 Broadway (N 260002 ZSM)</td>
+      <td>Land Use Application</td>
+    </tr>
+    </body></html>
+    """
+
+    class _FakeResp:
+        text = html
+
+        def raise_for_status(self):
+            pass
+
+    class _FakeClient:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            pass
+
+        def get(self, url, **kw):
+            return _FakeResp()
+
+    monkeypatched = _leg._scrape_meeting_agenda.__wrapped__ if hasattr(
+        _leg._scrape_meeting_agenda, "__wrapped__"
+    ) else None
+
+    import unittest.mock as mock
+
+    with mock.patch("ingest.sources.nyc.legistar.httpx") as mock_httpx:
+        mock_httpx.Client.return_value = _FakeClient()
+        matters = _leg._scrape_meeting_agenda(12345, "FAKE-GUID")
+
+    assert matters == [
+        "Rezoning 123 Main Street (C 260001 ZMM)",
+        "Special permit 456 Broadway (N 260002 ZSM)",
+    ]
+
+
+def test_scrape_meeting_agenda_returns_empty_when_no_rows():
+    pytest.importorskip("bs4")
+    import ingest.sources.nyc.legistar as _leg
+    import unittest.mock as mock
+
+    class _EmptyResp:
+        text = "<html><body><table></table></body></html>"
+
+        def raise_for_status(self):
+            pass
+
+    class _FakeClient:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            pass
+
+        def get(self, url, **kw):
+            return _EmptyResp()
+
+    with mock.patch("ingest.sources.nyc.legistar.httpx") as mock_httpx:
+        mock_httpx.Client.return_value = _FakeClient()
+        assert _leg._scrape_meeting_agenda(99999, "FAKE-GUID") == []
+
+
+def test_enrich_with_agenda_uses_web_scrape_when_guid_present(monkeypatch):
+    pytest.importorskip("httpx")
+    import ingest.sources.nyc.legistar as _leg
+
+    scraped_matters = ["Rezoning East 116th St", "Special permit variance"]
+    monkeypatch.setattr(_leg, "_scrape_meeting_agenda", lambda eid, guid: scraped_matters)
+
+    # Create an event that carries a GUID (as if it came from the web-calendar scraper).
+    base = _event_to_civic({**SAMPLE_LU_EVENT, "EventGuid": "FAKE-GUID-123"})
+    enriched = _leg.enrich_with_agenda(base)
+
+    assert enriched.extras["agenda_items"] == scraped_matters
+    assert "Rezoning East 116th St" in enriched.summary
 
 
 def test_parse_calendar_html_skips_row_without_id():

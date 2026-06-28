@@ -95,10 +95,13 @@ _HEADERS = {
 }
 
 # Body names that carry land-use hearings residents care about.
+# Updated 2026-06-27: Subcommittee on Zoning and Franchises added (active, has agenda items);
+# Landmarks subcommittee name corrected to the current live name.
 _LAND_USE_BODIES = frozenset(
     {
         "Committee on Land Use",
-        "Subcommittee on Landmarks, Public Siting and Maritime Uses",
+        "Subcommittee on Zoning and Franchises",
+        "Subcommittee on Landmarks, Public Sitings, Resiliency and Dispositions",
     }
 )
 
@@ -203,7 +206,8 @@ def _us_date_to_iso(text: str) -> str | None:
 
 def _parse_calendar_row(row: Any, detail: Any) -> dict[str, Any] | None:
     """Map one web-calendar grid row to an API-shaped Event dict, or None to skip."""
-    m = re.search(r"[?&]ID=(\d+)", detail.get("href") or "")
+    href = detail.get("href") or ""
+    m = re.search(r"[?&]ID=(\d+)", href)
     if not m:
         return None
     date_el = row.find("td", class_="rgSorted")
@@ -214,8 +218,10 @@ def _parse_calendar_row(row: Any, detail: Any) -> dict[str, Any] | None:
     time_el = row.find("span", id=re.compile(r"_lblTime$"))
     cells = row.find_all("td", recursive=False)
     location = cells[4].get_text(" ", strip=True) if len(cells) > 4 else ""
+    guid_m = re.search(r"[?&]GUID=([^&]+)", href)
     return {
         "EventId": int(m.group(1)),
+        "EventGuid": guid_m.group(1) if guid_m else None,
         "EventBodyName": body_el.get_text(strip=True) if body_el else "",
         "EventDate": iso_date,
         "EventTime": time_el.get_text(strip=True) if time_el else None,
@@ -301,6 +307,7 @@ def _event_to_civic(event: dict[str, Any]) -> CivicEvent:
     location: str = event.get("EventLocation") or ""
     agenda_status: str = event.get("EventAgendaStatusName") or ""
     event_time = _parse_event_time(event.get("EventTime"))
+    event_guid: str | None = event.get("EventGuid")
 
     is_land_use = body_name in _LAND_USE_BODIES
     action_type = "land_use_hearing" if is_land_use else "council_hearing"
@@ -312,6 +319,16 @@ def _event_to_civic(event: dict[str, Any]) -> CivicEvent:
         + (f" at {location}" if location else "")
         + (f" (agenda: {agenda_status})" if agenda_status else "")
         + "."
+    )
+
+    # MeetingDetail.aspx requires a GUID query parameter; without it the page
+    # returns 410. The GUID is captured from the web-calendar scraper; REST API
+    # events don't carry one, so we omit it when absent rather than emit a broken link.
+    detail_url = (
+        f"https://legistar.council.nyc.gov/MeetingDetail.aspx"
+        f"?ID={event_id}&GUID={event_guid}&Options=info|&Search="
+        if event_guid
+        else f"https://legistar.council.nyc.gov/MeetingDetail.aspx?ID={event_id}"
     )
 
     return CivicEvent(
@@ -330,7 +347,7 @@ def _event_to_civic(event: dict[str, Any]) -> CivicEvent:
                 kind="data_source",
                 verifies="exact_record",
                 label=f"NYC Legistar Event #{event_id}",
-                url=f"https://legistar.council.nyc.gov/MeetingDetail.aspx?ID={event_id}",
+                url=detail_url,
                 retrieved_at=datetime.now(UTC),
             )
         ],
@@ -339,6 +356,7 @@ def _event_to_civic(event: dict[str, Any]) -> CivicEvent:
             "body_id": event.get("EventBodyId"),
             "agenda_status": agenda_status,
             "location": location,
+            "event_guid": event_guid,
         },
         extracted_at=datetime.now(UTC),
     )
@@ -400,7 +418,7 @@ def discover_cd_hearings(cd: str, days_ahead: int = 30) -> list[CivicEvent]:
     results: list[CivicEvent] = []
     for raw in events:
         body_name = raw.get("EventBodyName") or ""
-        if any(kw in body_name for kw in _CD_HEARING_KEYWORDS):
+        if any(kw in body_name for kw in _CD_HEARING_KEYWORDS) or body_name in _LAND_USE_BODIES:
             try:
                 results.append(_event_to_civic(raw))
             except Exception as exc:  # noqa: BLE001
@@ -461,14 +479,48 @@ def _fetch_event_items(client: httpx.Client, event_id: int) -> list[dict[str, An
     return rows
 
 
+def _scrape_meeting_agenda(event_id: int, guid: str) -> list[str]:
+    """Scrape agenda item names from the public MeetingDetail HTML page.
+
+    The Legistar REST API now requires a token for /Events/{id}/EventItems; this
+    scrapes the equivalent public HTML page, which renders the same data server-side
+    without authentication. Returns matter names (cells[5]) in agenda order.
+    Returns [] when the agenda isn't published yet or the page has no data rows.
+    """
+    if httpx is None:
+        raise RuntimeError("httpx is not installed; install it with: pip install httpx")
+    if BeautifulSoup is None:
+        raise RuntimeError(
+            "beautifulsoup4 is not installed; install it with: pip install beautifulsoup4"
+        )
+    url = (
+        f"https://legistar.council.nyc.gov/MeetingDetail.aspx"
+        f"?ID={event_id}&GUID={guid}&Options=info|&Search="
+    )
+    with httpx.Client(timeout=_TIMEOUT, headers=_HEADERS) as client:
+        resp = client.get(url, follow_redirects=True)
+        resp.raise_for_status()
+    soup = BeautifulSoup(resp.text, "html.parser")
+    matters: list[str] = []
+    for row in soup.find_all(
+        "tr", id=re.compile(r"ctl00_ContentPlaceHolder1_gridMain_ctl00__\d+")
+    ):
+        cells = row.find_all("td", recursive=False)
+        if len(cells) > 5:
+            name = cells[5].get_text(" ", strip=True)
+            if name:
+                matters.append(name)
+    return matters
+
+
 def enrich_with_agenda(event: CivicEvent) -> CivicEvent:
     """Return a copy of ``event`` with agenda item titles appended to its summary.
 
-    Fetches ``GET /Events/{event_id}/EventItems`` for the event referenced by
-    ``event.source_record_id`` (format: ``event:{EventId}``), collects
-    ``EventItemTitle`` strings, and appends them as a bullet list.  The raw list
-    is stored in ``event.extras["agenda_items"]``.  The original event is never
-    mutated.
+    Primary path: scrape the public MeetingDetail HTML page (no auth needed) when the
+    event carries a GUID in extras (set by the web-calendar scraper). Falls back to the
+    Legistar REST endpoint GET /Events/{event_id}/EventItems when no GUID is present
+    (events sourced from the REST API, or as a network-failure fallback). Returns []
+    gracefully when the agenda isn't published yet. The original event is never mutated.
 
     Raises:
         ValueError: if ``source_record_id`` does not match ``event:{int}``.
@@ -480,9 +532,15 @@ def enrich_with_agenda(event: CivicEvent) -> CivicEvent:
     if len(parts) != 2 or not parts[1].isdigit():
         raise ValueError(f"Cannot parse event_id from source_record_id={event.source_record_id!r}")
     event_id = int(parts[1])
-    with httpx.Client(timeout=_TIMEOUT, headers=_HEADERS) as client:
-        items = _fetch_event_items(client, event_id)
-    titles = [it["EventItemTitle"] for it in items if it.get("EventItemTitle")]
+
+    guid = event.extras.get("event_guid")
+    if guid:
+        titles = _scrape_meeting_agenda(event_id, guid)
+    else:
+        with httpx.Client(timeout=_TIMEOUT, headers=_HEADERS) as client:
+            items = _fetch_event_items(client, event_id)
+        titles = [it["EventItemTitle"] for it in items if it.get("EventItemTitle")]
+
     agenda_block = "Agenda:\n" + "\n".join(f"- {t}" for t in titles) if titles else ""
     new_summary = ((event.summary + "\n\n") if event.summary else "") + agenda_block
     return event.model_copy(

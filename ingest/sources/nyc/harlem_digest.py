@@ -216,6 +216,13 @@ SAMPLE_SUBSCRIBER = {
 }
 
 
+# Primary Council Member by 3-digit community_district string. Manhattan CD11 (East Harlem)
+# spans Council Districts 8 and 11; the majority of the district is represented by CD8.
+_CD_TO_COUNCIL_MEMBER: dict[str, str] = {
+    "111": "Salaam",  # Manhattan CD11 — primarily Council District 8 (Yusef Salaam)
+}
+
+
 def _get_subscriber() -> dict[str, Any]:
     """Return the first registered subscriber from CSV, or the dev-mode sample as fallback.
 
@@ -225,7 +232,12 @@ def _get_subscriber() -> dict[str, Any]:
     """
     subs = load_subscribers()
     if subs:
-        return subs[0]
+        sub = subs[0]
+        if "council_member" not in sub:
+            cm = _CD_TO_COUNCIL_MEMBER.get(str(sub.get("community_district", "")))
+            if cm:
+                sub = {**sub, "council_member": cm}
+        return sub
     log.warning(
         "No subscribers found in out/subscribers.csv — using built-in sample subscriber "
         "(dev mode). Run add_subscriber() to register a real reader."
@@ -702,7 +714,10 @@ def gather_events() -> tuple[list[CivicEvent], bool]:
         # in the live path.
         events = gather_live_events(
             include_grades=True,
-            include_311=True,
+            include_311=False,
+            # Agenda enrichment now uses a public HTML scrape (no token needed) when the
+            # event carries a GUID from the web-calendar scraper. Fails soft per event.
+            include_agenda_enrichment=True,
             # CB11 agendas: re-enable when GOOGLE_API_KEY has live Gemini credits.
             # Without credits every PDF attempt fails 429 and costs ~3s dead time.
             include_cb_agenda=False,
@@ -711,7 +726,10 @@ def gather_events() -> tuple[list[CivicEvent], bool]:
             # connector replaces this path.
             include_ulurp_packet=False,
             include_dob_now=True,
-            include_permitted_events=True,
+            # Permitted events geocodes every Manhattan event to find CD-11 ones — too slow
+            # when few or no events are scheduled nearby. Re-enable when we can pre-filter
+            # the dataset by address prefix or geographic bounding box.
+            include_permitted_events=False,
         )
         if events:
             return events, True

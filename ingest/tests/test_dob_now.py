@@ -1,4 +1,4 @@
-"""Offline contract tests for the DOB NOW: Build connector (qnmk-7xra).
+"""Offline contract tests for the DOB NOW: Build connector (rbx6-tga4).
 
 Verifies the mapper, feed registration, and citation correctness without any
 live network calls.  A separate integration test (not in CI) exercises the real
@@ -6,6 +6,8 @@ Socrata endpoint.
 """
 
 from __future__ import annotations
+
+import pytest
 
 from ingest.sources.nyc.citations import audit_citation
 from ingest.sources.nyc.dob_hpd import (
@@ -155,3 +157,16 @@ def test_mapper_a2_work_type():
     rec = {**_SAMPLE_REC, "work_type": "Alteration Type 2", "job_filing_number": "M-A2-001"}
     ev = _dob_now_permit_to_event(rec)
     assert ev.extras["job_type"] == "A2"
+
+
+def test_mapper_lat_lon_extracted():
+    rec = {**_SAMPLE_REC, "latitude": "40.7969", "longitude": "-73.9410"}
+    ev = _dob_now_permit_to_event(rec)
+    assert ev.latitude == pytest.approx(40.7969)
+    assert ev.longitude == pytest.approx(-73.9410)
+
+
+def test_mapper_lat_lon_absent_is_none():
+    ev = _dob_now_permit_to_event(_SAMPLE_REC)
+    assert ev.latitude is None
+    assert ev.longitude is None

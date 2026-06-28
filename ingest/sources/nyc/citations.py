@@ -59,7 +59,7 @@ KNOWN_HOSTS = (
 KNOWN_DATASETS = (
     "wvxf-dwi5",  # HPD housing-maintenance violations
     "ipu4-2q9a",  # DOB permit issuance (legacy BIS system)
-    "qnmk-7xra",  # DOB NOW: Build — approved permits (current system)
+    "rbx6-tga4",  # DOB NOW: Build — approved permits (current system)
     "hgx4-8ukb",  # ZAP land-use projects (ulurp_numbers, project_brief, public_status)
     "2iga-a6mk",  # ZAP project-BBL rows (project_id -> bbl, many-to-many)
     "355w-xvp2",  # DOB Local Law 33 energy letter grade (bbl-native, A-F)
