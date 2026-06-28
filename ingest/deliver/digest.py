@@ -440,13 +440,20 @@ def build_digest(
     # a reader nothing to act on and clutters the feed. Events with a lapsed deadline
     # are kept because they belong in "Deadline passed". Events with no event_date
     # (e.g. a displacement signal) are always kept.
-    # Exception: open violations are always surfaced regardless of how long the correction
-    # deadline has lapsed. A landlord ignoring an overdue Class C order is more urgent,
-    # not less — filtering it out because the deadline is >90 days old is exactly backwards.
+    # Exceptions that are always kept regardless:
+    # - Violations: an overdue Class C is more urgent the longer it sits, not less.
+    # - Recent permits (< 7 days old): a sidewalk shed or major alteration issued this
+    #   week is "happened this week" context — useful even without an open deadline.
+    recent_cutoff = asof - timedelta(days=7)
     all_items = [
         it
         for it in raw_items
         if it.get("action_type") == "violation"
+        or (
+            it.get("action_type") == "permit"
+            and it["event_date"] is not None
+            and it["event_date"] >= recent_cutoff
+        )
         or (
             not (
                 it["event_date"] is not None and it["event_date"] < asof and it["deadline"] is None
@@ -460,7 +467,6 @@ def build_digest(
 
     # "Happened this week": past events that fell within the last 7 days — context only,
     # no open action window, surfaced so the reader knows what just occurred nearby.
-    recent_cutoff = asof - timedelta(days=7)
     recent_items = [
         it
         for it in all_items
