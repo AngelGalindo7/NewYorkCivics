@@ -6,8 +6,8 @@ review, and render the verifiable email body. Sending is send.py's job.
 
 The render is a short weekly briefing built for scannability and trust. Top to
 bottom: a personalization line scoped to the subscriber's address; a one-line stats
-hook of whole-number counts; a "Right next to you" lead of buildings carrying a
-confirmed serious violation (a safety fact outranks procedure); an "Act on this" lead
+hook of whole-number counts; a "Confirmed hazards in your neighborhood" lead of buildings
+carrying a confirmed serious violation (a safety fact outranks procedure); an "Act on this" lead
 of items a reader can still act on (a future deadline or event); the proximity-banded
 building feed; the honest verifiability footer. A confirmed hazard near the reader
 leads because it is the most consequential thing in the email; a still-open deadline
@@ -378,14 +378,12 @@ def _stats_line(all_items: list[dict[str, Any]], lead: list[dict[str, Any]]) -> 
     matches what a reader can actually act on. A needs-verification signal is never
     counted here — it is not a headline fact.
     """
-    # Scope physical-proximity counts to block + neighbourhood so "within a 5-minute walk"
-    # is an honest claim. Hearings are citywide events (held at City Hall / 250 Broadway)
-    # and get their own clause without a distance prefix.
-    nearby = [
-        it for it in all_items if it.get("band") in (BAND_ON_YOUR_BLOCK, BAND_IN_YOUR_NEIGHBORHOOD)
-    ]
-    permits = sum(1 for it in nearby if it["action_type"] == "permit")
-    violations = sum(1 for it in nearby if it["action_type"] == "violation")
+    # All violations/permits are already scoped to the subscriber's community district
+    # (ZIP 10029/10035 for HPD; CB 111 for DOB) — "in your neighborhood" is the honest
+    # framing. Hearings are citywide events held at City Hall / 250 Broadway and get their
+    # own clause without a neighbourhood distance prefix.
+    permits = sum(1 for it in all_items if it["action_type"] == "permit")
+    violations = sum(1 for it in all_items if it["action_type"] == "violation")
     speakable = sum(1 for it in lead if _is_speakable(it["action_type"]))
 
     parts: list[str] = []
@@ -395,7 +393,7 @@ def _stats_line(all_items: list[dict[str, Any]], lead: list[dict[str, Any]]) -> 
     if violations:
         nearby_clauses.append(f"{violations} hazardous violation{'s' if violations != 1 else ''}")
     if nearby_clauses:
-        parts.append("Within a 5-minute walk: " + " · ".join(nearby_clauses) + ".")
+        parts.append("In your neighborhood: " + " · ".join(nearby_clauses) + ".")
     if speakable:
         noun = (
             "upcoming hearing you can still speak at"
@@ -481,13 +479,12 @@ def build_digest(
     # keys are listed in proximity order (sections run block -> neighborhood -> area); the
     # renderer resolves each key back to its building thread, so a building is never
     # duplicated and the items keep their single source of truth in ``sections``.
-    # "Right next to you" is a proximity claim — only buildings in the block or
-    # neighbourhood band qualify. Area-band hazards still appear in their proximity
-    # section further down; they do not lead the digest.
+    # Confirmed hazardous violations lead the whole digest regardless of proximity band —
+    # a Class C violation anywhere in the neighbourhood is consequential. The section is
+    # labelled by severity ("confirmed hazards"), not by distance, so all bands qualify.
     at_risk_building_keys = [
         building["key"]
         for section in sections
-        if section["band"] in (BAND_ON_YOUR_BLOCK, BAND_IN_YOUR_NEIGHBORHOOD)
         for building in section["buildings"]
         if any(_is_hazardous_violation(it) for it in building["items"])
     ]
@@ -823,7 +820,7 @@ def render_markdown(
     # Resolve each at-risk building to the items it would actually show here (its thread
     # minus anything already in the "Act on this" lead). Compute this before emitting the
     # header so a building whose only hazard item leads "Act on this" (a future correct-by
-    # deadline) doesn't leave a stray empty "Right next to you" header.
+    # deadline) doesn't leave a stray empty section header.
     at_risk_visible = [
         (building, [it for it in building["items"] if it.get("source_record_id") not in lead_ids])
         for building in at_risk
@@ -831,7 +828,7 @@ def render_markdown(
     at_risk_visible = [(b, vis) for b, vis in at_risk_visible if vis]
     at_risk_rendered_ids: set[str] = set()
     if at_risk_visible:
-        out.append("## Right next to you")
+        out.append("## Confirmed hazards in your neighborhood")
         out.append("")
         for building, visible in at_risk_visible:
             out.append(f"#### {building['label']}")

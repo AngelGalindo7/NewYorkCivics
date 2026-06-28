@@ -244,16 +244,15 @@ def test_render_is_nonempty_markdown(digest):
     body = render_markdown(digest)
     assert body.startswith("# ")
     # The sample's only building carries a confirmed Class C violation, so it leads the
-    # digest under "Right next to you" rather than sitting in the proximity feed.
-    assert "## Right next to you" in body
+    # digest under "Confirmed hazards in your neighborhood" rather than sitting in the feed.
+    assert "## Confirmed hazards in your neighborhood" in body
 
 
 def test_at_risk_building_leads_then_act_on_this(digest):
-    # A confirmed serious violation near the reader is the most consequential item, so its
-    # building leads the digest; the still-actionable hearing follows in "Act on this". Both
-    # sit below the personalization line / stats hook at the very top.
+    # A confirmed serious violation in the neighbourhood is the most consequential item, so
+    # its building leads the digest; the still-actionable hearing follows in "Act on this".
     body = render_markdown(digest)
-    at_risk_idx = body.index("## Right next to you")
+    at_risk_idx = body.index("## Confirmed hazards in your neighborhood")
     act_idx = body.index("## Act on this")
     assert body.index("For the address you gave us") < at_risk_idx < act_idx
 
@@ -337,9 +336,11 @@ def test_only_confirmed_hazardous_violation_building_leads():
     assert digest["at_risk_building_keys"] == ["bbl:1000000001"]
 
     body = render_markdown(digest)
-    assert "## Right next to you" in body
-    # Isolate just the "Right next to you" section (up to the next ## heading).
-    at_risk_block = body.split("## Right next to you", 1)[1].split("\n## ", 1)[0]
+    assert "## Confirmed hazards in your neighborhood" in body
+    # Isolate just the hazards section (up to the next ## heading).
+    at_risk_block = body.split("## Confirmed hazards in your neighborhood", 1)[1].split("\n## ", 1)[
+        0
+    ]
     assert "1 HAZARD ST" in at_risk_block
     assert "2 PERMIT AVE" not in at_risk_block
     assert "3 COMPLAINT RD" not in at_risk_block
@@ -359,14 +360,14 @@ def test_non_hazardous_or_unconfirmed_violation_does_not_lead():
     ]
     digest = build_digest(SAMPLE_SUBSCRIBER, {BAND_ON_YOUR_BLOCK: events}, asof=ASOF)
     assert digest["at_risk_building_keys"] == []
-    assert "## Right next to you" not in render_markdown(digest)
+    assert "## Confirmed hazards in your neighborhood" not in render_markdown(digest)
 
 
 def test_future_deadline_hazard_no_empty_header_no_duplicate():
     from ingest.extract.schemas import Citation, CivicEvent, RecordStatus
 
     # A hazardous violation with a FUTURE correct-by date is actionable, so it leads
-    # "Act on this". The "Right next to you" header must not print empty, and the item must
+    # "Act on this". The hazards section header must not print empty, and the item must
     # not also re-render in "Later"/"Happened this week".
     ev = CivicEvent(
         source_id="test_hpd",
@@ -387,13 +388,15 @@ def test_future_deadline_hazard_no_empty_header_no_duplicate():
     )
     digest = build_digest(SAMPLE_SUBSCRIBER, {BAND_ON_YOUR_BLOCK: [ev]}, asof=ASOF)
     body = render_markdown(digest)
-    assert "## Right next to you" not in body  # nothing to show there -> no empty header
+    assert (
+        "## Confirmed hazards in your neighborhood" not in body
+    )  # nothing to show -> no empty header
     assert "## Act on this" in body
     assert body.count("Future hazard violation") == 1  # rendered exactly once
 
 
 def test_at_risk_item_is_not_shown_twice(digest):
-    # An overdue hazardous violation that leads "Right next to you" must not also appear in
+    # An overdue hazardous violation that leads the hazards section must not also appear in
     # "Deadline passed" or "Near you" — each event is shown exactly once. The violation item's
     # title is its fingerprint (the displacement signal cites the same record but reads
     # differently), so the title must appear exactly once in the whole body.
@@ -1090,12 +1093,12 @@ def test_zap_summary_does_not_contain_bare_ulurp_label(digest):
     assert "ULURP:" not in body
 
 
-def test_stats_line_uses_walkable_area_framing(digest):
-    # Violations and permits within block/neighbourhood band carry the "5-minute walk"
-    # prefix; the claim is scoped to items we actually know are that close.
+def test_stats_line_uses_neighbourhood_framing(digest):
+    # All violations/permits are scoped to the community district; "in your neighborhood"
+    # is the honest framing — no false precision about exact walking distance.
     line = digest["stats_line"]
     assert line is not None
-    assert "within a 5-minute walk" in line.lower()
+    assert "in your neighborhood" in line.lower()
 
 
 # ══════════════════════════════════════════════════════════════════════════════

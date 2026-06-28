@@ -340,7 +340,7 @@ def test_main_reviews_flagged_item_even_when_flag_understated(tmp_path, monkeypa
 
 def _hazardous_violation() -> CivicEvent:
     """A confirmed (ACCEPTED) hazardous violation on the subscriber's block — the trigger
-    for the 'Right next to you' lead. Overdue, so it stays in its thread, not the lead."""
+    for the confirmed-hazards lead. Overdue, so it stays in its thread, not the lead."""
     return CivicEvent(
         source_id="test_hpd",
         source_record_id="VHAZ",
@@ -368,7 +368,7 @@ def _hazardous_violation() -> CivicEvent:
 def test_at_risk_lead_survives_review_round_trip(tmp_path):
     # The hazardous-violation lead must survive dump -> separate-process load -> review:
     # rejecting the flagged signal on the same building must not drop the confirmed hazard
-    # from the "Right next to you" lead, and the re-derived keys stay consistent.
+    # from the confirmed-hazards lead, and the re-derived keys stay consistent.
     events = [_hazardous_violation(), _flagged_undated_signal()]
     matched = match_subscriber(SAMPLE_SUBSCRIBER, events)
     digest = build_digest(SAMPLE_SUBSCRIBER, matched, asof=ASOF)
@@ -381,6 +381,6 @@ def test_at_risk_lead_survives_review_round_trip(tmp_path):
 
     assert reviewed["at_risk_building_keys"] == [f"bbl:{SUBSCRIBER_BBL}"]
     body = render_markdown(reviewed)
-    assert "## Right next to you" in body
+    assert "## Confirmed hazards in your neighborhood" in body
     assert "Immediately hazardous violation (Class C)" in body
     assert "[needs verification]" not in body
