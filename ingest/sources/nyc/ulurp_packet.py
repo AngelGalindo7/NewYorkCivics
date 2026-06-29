@@ -1,30 +1,35 @@
-"""Stage 1 (Fetch) — ULURP land-use packets. NYC-SPECIFIC.
+"""Stage 1 (Fetch) — ULURP land-use packets via the ZAP public API. NYC-SPECIFIC.
 
 Single responsibility: discover and download NYC ULURP (Uniform Land Use Review
-Procedure) packets and identify which application each belongs to. This is a
-DIRTY source: packets are PDFs, often *hundreds of pages* of dense legal prose.
-This module only fetches bytes + identity metadata; parsing and extraction happen
-in the city-agnostic Parse and Extract stages.
+Procedure) application packets from the ZAP public API. Each ZAP project exposes
+package documents — the formal ULURP land-use application narratives — which are
+the dirty PDF source for later Parse and Extract stages.
 
 Design
 ------
-ULURP numbers are sourced from the ZAP structured connector (``zap_api``), which
-already pulls active MN11 applications from Socrata. Each validated ULURP number
-maps to a packet PDF URL via a deterministic URL template derived from the DCP ZAP
-portal (``a836-zap.nyc.gov``). Only the primary packet document is fetched; the
-hundreds of boilerplate attachments are skipped.
+ULURP project IDs come from the ZAP structured connector (``zap_api``), which
+already pulls active MN11 applications from Socrata. For each project, this
+connector queries the ZAP Heroku API (``zap-api-production.herokuapp.com``) to
+find the most recent land-use application package and selects the primary narrative
+document (the "LR Item" application report). The document proxy URL is served by
+the same Heroku API host.
+
+Discovery does not require httpx — it uses only stdlib ``urllib.request``.
+httpx is required only for the final PDF download (``fetch()``).
 
 Rules honored
 -------------
 - LLM only on dirty inputs: no LLM here; the LLM fires later, in Extract.
-- Quote the source: preserve raw bytes so every extracted fact traces back to a
-  verbatim line in the packet.
-- NYC-specific code in nyc/: the ULURP-number shape and packet locations are NYC
-  knowledge and stay in this package.
+- Quote the source: raw PDF bytes are passed verbatim to Parse so every extracted
+  fact traces back to a verbatim line in the packet.
+- NYC-specific code in nyc/: ZAP API patterns stay in this package.
 """
 
 from __future__ import annotations
 
+import json
+import urllib.error
+import urllib.request
 from dataclasses import dataclass
 
 try:
@@ -32,11 +37,10 @@ try:
 except ImportError:
     _httpx = None  # type: ignore[assignment]
 
-from ingest.extract.ulurp_codes import ULURP_PATTERN as _ULURP_RE
 from ingest.observability import get_logger
 
 # Bound at module level so tests can monkeypatch _iter_zap_events without patching
-# the zap_api module directly (sodapy is still only needed at call time, not import time).
+# the zap_api module directly.
 from ingest.sources.nyc.zap_api import iter_zap_events as _iter_zap_events
 
 log = get_logger(__name__)
@@ -44,12 +48,17 @@ log = get_logger(__name__)
 SOURCE_ID = "nyc_ulurp_packet"
 _TIMEOUT = 60.0
 
-# URL pattern for ULURP packet PDFs on the DCP ZAP portal backend.
-# Confirmed from the "Documents" tab at https://zap.planning.nyc.gov/projects/{project_id}:
-# the primary packet PDF is served at this path, keyed by the normalized ULURP number
-# (prefix + 6-digit sequence + 2-letter action code + borough suffix, no spaces, uppercase).
-# Example: "C 240042 ZMM" -> "C240042ZMM" -> https://a836-zap.nyc.gov/document/ulurp/C240042ZMM
-_ZAP_PACKET_URL_TEMPLATE = "https://a836-zap.nyc.gov/document/ulurp/{normalized}"
+# The ZAP portal is an Ember SPA whose backend is this public Heroku app.
+# Confirmed 2026-06-29 by decoding the <meta name="labs-zap-search/config/environment">
+# tag embedded in zap.planning.nyc.gov — the "host" key points here. The old
+# a836-zap.nyc.gov hostname in the original URL template fails public DNS.
+_PROJECT_API = "https://zap-api-production.herokuapp.com"
+
+# Package type code for land-use applications, confirmed from the API response for
+# project 2020M0383. Other types include 717170012 (Environmental Assessment Statement).
+_LAND_USE_PKG_TYPE = "717170011"
+
+_UA = "nyc-civic-ingest/1.0"
 
 
 @dataclass(frozen=True)
@@ -58,10 +67,9 @@ class PacketRef:
 
     Attributes:
         ulurp_number: The ULURP application number (e.g. ``"C 240123 ZMM"``).
-            Format validation lives in ``ingest/extract/ulurp_codes.py``.
-        url: Direct link to the packet PDF.
+        url: Direct PDF proxy link via the ZAP API.
         project_thread_id: Optional cross-source story id, if already known.
-        title: Human label as it appears on the source site, if any.
+        title: Document name as it appears in ZAP.
     """
 
     ulurp_number: str
@@ -70,40 +78,65 @@ class PacketRef:
     title: str | None = None
 
 
-def _build_packet_url(ulurp_number: str) -> str | None:
-    """Construct the packet PDF URL for a ULURP number; ``None`` if malformed.
+def _fetch_project_json(project_id: str) -> dict:
+    """Fetch ZAP project JSON from the public Heroku API.
 
-    Pure, network-free: validates the ULURP number against the canonical pattern
-    and assembles the URL deterministically. Callers should treat a ``None``
-    return as fail-fast — don't guess at a URL for a malformed number.
+    Returns an empty dict on any failure so callers can fail-soft.
     """
-    m = _ULURP_RE.match(ulurp_number)
-    if not m:
+    url = f"{_PROJECT_API}/projects/{project_id}"
+    req = urllib.request.Request(url, headers={"User-Agent": _UA, "Accept": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=20) as r:
+            return json.loads(r.read())
+    except urllib.error.HTTPError as exc:
+        log.warning("ulurp_packet: API %s -> HTTP %d", url, exc.code)
+        return {}
+    except Exception as exc:
+        log.warning("ulurp_packet: API %s failed: %s", url, exc)
+        return {}
+
+
+def _pick_primary_doc(documents: list[dict]) -> dict | None:
+    """Select the main narrative document from a package's document list.
+
+    DCP packages always lead with a "DCP Signature Form" at index 0. The primary
+    application narrative is typically labelled "LR Item" (Land Review item).
+    Falls back to the second document when no "LR Item" label is found, since
+    the first is invariably the signature form.
+    """
+    if not documents:
         return None
-    normalized = m.group("prefix") + m.group("number") + m.group("action") + m.group("borough")
-    return _ZAP_PACKET_URL_TEMPLATE.format(normalized=normalized)
+    for doc in documents:
+        name_lower = (doc.get("name") or "").lower()
+        if "lr item" in name_lower or "lr-item" in name_lower:
+            return doc
+    return documents[1] if len(documents) > 1 else documents[0]
+
+
+def _build_doc_url(server_relative_url: str, doc_type: str = "package") -> str:
+    """Construct the ZAP API proxy URL for one document.
+
+    The proxy serves documents at ``/document/{type}{serverRelativeUrl}`` where
+    serverRelativeUrl is a OneDrive item ID path (e.g. ``/01QY2C5K...``).
+    """
+    return f"{_PROJECT_API}/document/{doc_type}{server_relative_url}"
 
 
 def discover_packets(ulurp_number: str | None = None) -> list[PacketRef]:
     """Find ULURP packets to fetch for active MN11 applications.
 
-    Pulls active East Harlem (MN11) ULURP numbers from the ZAP structured connector,
-    validates each against the canonical ULURP format, and constructs a
-    :class:`PacketRef` for every valid application. Callers deduplicate against
-    what is already stored.
+    For each active East Harlem project returned by the ZAP connector, queries
+    the ZAP API to find the most recent land-use application package and its
+    primary narrative document. Returns one :class:`PacketRef` per project with
+    a discoverable packet.
 
     Args:
-        ulurp_number: Restrict discovery to a single application number;
-            ``None`` scans all active MN11 applications returned by ZAP.
+        ulurp_number: Restrict discovery to a single ULURP number;
+            ``None`` scans all active MN11 applications.
 
     Returns:
-        :class:`PacketRef` list, one per valid ULURP application.
-        Returns ``[]`` on any discovery failure — never raises.
+        :class:`PacketRef` list. Returns ``[]`` on any discovery failure — never raises.
     """
-    if _httpx is None:
-        log.warning("ulurp_packet: httpx not installed; discover_packets skipped")
-        return []
-
     try:
         events = list(_iter_zap_events())
     except Exception as exc:
@@ -111,28 +144,55 @@ def discover_packets(ulurp_number: str | None = None) -> list[PacketRef]:
         return []
 
     refs: list[PacketRef] = []
-    seen_urls: set[str] = set()
+    seen_project_ids: set[str] = set()
 
     for event in events:
-        num = event.ulurp_number
-        if not num:
+        if ulurp_number is not None and event.ulurp_number != ulurp_number:
             continue
-        if ulurp_number is not None and num != ulurp_number:
+
+        project_id = event.source_record_id
+        if not project_id or project_id in seen_project_ids:
             continue
-        # Reject malformed numbers — don't construct a guess URL.
-        url = _build_packet_url(num)
-        if url is None:
-            log.warning("ulurp_packet: malformed ULURP number %r; skipping", num)
+        seen_project_ids.add(project_id)
+
+        proj_json = _fetch_project_json(project_id)
+        if not proj_json:
             continue
-        if url in seen_urls:
+
+        # Find the most recent land-use application package.
+        included = proj_json.get("included") or []
+        packages = [
+            item
+            for item in included
+            if item.get("type") == "packages"
+            and str(item.get("attributes", {}).get("dcp-packagetype", "")) == _LAND_USE_PKG_TYPE
+        ]
+        if not packages:
+            log.debug("ulurp_packet: project %s has no land-use packages", project_id)
             continue
-        seen_urls.add(url)
+
+        packages.sort(
+            key=lambda p: p.get("attributes", {}).get("dcp-packagesubmissiondate") or "",
+            reverse=True,
+        )
+        documents = packages[0].get("attributes", {}).get("documents") or []
+
+        primary = _pick_primary_doc(documents)
+        if primary is None:
+            log.debug("ulurp_packet: project %s latest package has no documents", project_id)
+            continue
+
+        server_relative_url = primary.get("serverRelativeUrl")
+        if not server_relative_url:
+            log.debug("ulurp_packet: project %s doc missing serverRelativeUrl", project_id)
+            continue
+
         refs.append(
             PacketRef(
-                ulurp_number=num,
-                url=url,
+                ulurp_number=event.ulurp_number or project_id,
+                url=_build_doc_url(server_relative_url),
                 project_thread_id=event.project_thread_id,
-                title=f"ULURP packet {num}",
+                title=primary.get("name") or f"ULURP packet {project_id}",
             )
         )
 
@@ -143,11 +203,10 @@ def fetch(url: str) -> bytes:
     """Download one ULURP packet PDF.
 
     Args:
-        url: Direct PDF link from a :class:`PacketRef`.
+        url: Direct PDF proxy link from a :class:`PacketRef`.
 
     Returns:
         Raw PDF bytes (possibly hundreds of pages), handed verbatim to Parse.
-        Callers must handle network failures; this function does not suppress them.
 
     Raises:
         ImportError: if httpx is not installed.
@@ -156,6 +215,6 @@ def fetch(url: str) -> bytes:
     if _httpx is None:
         raise ImportError("httpx is required for ulurp_packet.fetch()")
     with _httpx.Client(timeout=_TIMEOUT, follow_redirects=True) as client:
-        resp = client.get(url, headers={"User-Agent": "nyc-civic-ingest/1.0"})
+        resp = client.get(url, headers={"User-Agent": _UA})
         resp.raise_for_status()
         return resp.content

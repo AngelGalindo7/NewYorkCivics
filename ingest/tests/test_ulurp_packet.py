@@ -7,12 +7,40 @@ httpx are either absent (CI) or monkeypatched out.
 from __future__ import annotations
 
 import json
-import types
 from pathlib import Path
 
-from ingest.sources.nyc.ulurp_packet import PacketRef, _build_packet_url, discover_packets
+from ingest.sources.nyc.ulurp_packet import (
+    PacketRef,
+    _build_doc_url,
+    _pick_primary_doc,
+    discover_packets,
+)
 
 _FIXTURES = Path(__file__).parent / "fixtures"
+
+# Minimal ZAP API project response with one land-use package containing two docs.
+_FAKE_PROJECT_JSON = {
+    "included": [
+        {
+            "type": "packages",
+            "id": "pkg-abc",
+            "attributes": {
+                "dcp-packagetype": "717170011",
+                "dcp-packagesubmissiondate": "2024-01-15T10:00:00.000Z",
+                "documents": [
+                    {
+                        "name": "0.-DCP-Signature-Form.pdf",
+                        "serverRelativeUrl": "/01ABCDEFSIGNFORM",
+                    },
+                    {
+                        "name": "1.-123-Main-St---LR-Item-1-15-24.pdf",
+                        "serverRelativeUrl": "/01ABCDEFLRITEM",
+                    },
+                ],
+            },
+        }
+    ]
+}
 
 
 def _load_fixture_events() -> list:
@@ -36,30 +64,62 @@ def test_module_imports_clean() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# _build_packet_url                                                            #
+# _pick_primary_doc                                                            #
 # --------------------------------------------------------------------------- #
 
 
-def test_build_packet_url_valid() -> None:
-    """A well-formed ULURP number produces a non-empty HTTPS URL."""
-    url = _build_packet_url("C 240042 ZMM")
-    assert url is not None
-    assert url.startswith("https://")
-    assert "C240042ZMM" in url
+def test_pick_primary_doc_prefers_lr_item() -> None:
+    """Picks the doc labelled 'LR Item' when present."""
+    docs = [
+        {"name": "0.-DCP-Signature-Form.pdf", "serverRelativeUrl": "/01SIG"},
+        {"name": "1.-Address---LR-Item-3-30-26.pdf", "serverRelativeUrl": "/01LR"},
+        {"name": "2.-Zoning-Map.pdf", "serverRelativeUrl": "/01MAP"},
+    ]
+    result = _pick_primary_doc(docs)
+    assert result is not None
+    assert result["serverRelativeUrl"] == "/01LR"
 
 
-def test_build_packet_url_valid_variants() -> None:
-    """Other valid ULURP formats (different prefix / action) also produce URLs."""
-    assert _build_packet_url("N 230117 ZRM") is not None
-    assert _build_packet_url("C 220088 ZSM") is not None
+def test_pick_primary_doc_fallback_to_second() -> None:
+    """Falls back to index 1 when no 'LR Item' label is present (index 0 is signature form)."""
+    docs = [
+        {"name": "0.-DCP-Signature-Form.pdf", "serverRelativeUrl": "/01SIG"},
+        {"name": "E-125th-Street_EAS_11.4.2025.pdf", "serverRelativeUrl": "/01EAS"},
+    ]
+    result = _pick_primary_doc(docs)
+    assert result is not None
+    assert result["serverRelativeUrl"] == "/01EAS"
 
 
-def test_build_packet_url_invalid() -> None:
-    """Malformed ULURP numbers return None (fail fast, don't construct a guess URL)."""
-    assert _build_packet_url("NOT_A_ULURP") is None
-    assert _build_packet_url("") is None
-    assert _build_packet_url("12345") is None
-    assert _build_packet_url("C 240042") is None  # missing action+borough
+def test_pick_primary_doc_single_item() -> None:
+    """Returns the only doc when there is just one."""
+    docs = [{"name": "only.pdf", "serverRelativeUrl": "/01ONLY"}]
+    result = _pick_primary_doc(docs)
+    assert result is not None
+    assert result["serverRelativeUrl"] == "/01ONLY"
+
+
+def test_pick_primary_doc_empty() -> None:
+    """Returns None for an empty document list."""
+    assert _pick_primary_doc([]) is None
+
+
+# --------------------------------------------------------------------------- #
+# _build_doc_url                                                               #
+# --------------------------------------------------------------------------- #
+
+
+def test_build_doc_url_package() -> None:
+    """Package doc URL uses the /document/package prefix."""
+    url = _build_doc_url("/01ABCDEF12345")
+    assert "zap-api-production.herokuapp.com" in url
+    assert "/document/package/01ABCDEF12345" in url
+
+
+def test_build_doc_url_artifact() -> None:
+    """Artifact doc URL uses the /document/artifact prefix."""
+    url = _build_doc_url("/01ABCDEF12345", doc_type="artifact")
+    assert "/document/artifact/01ABCDEF12345" in url
 
 
 # --------------------------------------------------------------------------- #
@@ -67,22 +127,21 @@ def test_build_packet_url_invalid() -> None:
 # --------------------------------------------------------------------------- #
 
 
-def test_discover_packets_no_httpx(monkeypatch) -> None:
-    """With httpx absent, discover_packets returns [] without raising."""
+def test_discover_packets_iter_failure_returns_empty(monkeypatch) -> None:
+    """If iter_zap_events raises, discover_packets returns [] without propagating."""
     import ingest.sources.nyc.ulurp_packet as up_mod
 
-    monkeypatch.setattr(up_mod, "_httpx", None)
-    result = discover_packets()
-    assert result == []
+    def _boom(*a, **k):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(up_mod, "_iter_zap_events", _boom)
+    assert discover_packets() == []
 
 
 def test_discover_packets_unknown_ulurp(monkeypatch) -> None:
     """A ULURP number not present in the ZAP feed produces an empty list."""
     import ingest.sources.nyc.ulurp_packet as up_mod
 
-    # Provide a non-None httpx sentinel so the httpx guard passes.
-    monkeypatch.setattr(up_mod, "_httpx", types.ModuleType("httpx"))
-    # Stub iter_zap_events to return the fixture events (no network).
     fixture_events = _load_fixture_events()
     monkeypatch.setattr(up_mod, "_iter_zap_events", lambda *a, **k: iter(fixture_events))
 
@@ -90,33 +149,70 @@ def test_discover_packets_unknown_ulurp(monkeypatch) -> None:
     assert result == []
 
 
-def test_discover_packets_returns_refs_for_known_ulurp(monkeypatch) -> None:
-    """discover_packets returns a PacketRef for each valid ULURP in the ZAP feed."""
+def test_discover_packets_returns_refs(monkeypatch) -> None:
+    """discover_packets returns one PacketRef per project with a land-use package."""
     import ingest.sources.nyc.ulurp_packet as up_mod
 
-    monkeypatch.setattr(up_mod, "_httpx", types.ModuleType("httpx"))
     fixture_events = _load_fixture_events()
     monkeypatch.setattr(up_mod, "_iter_zap_events", lambda *a, **k: iter(fixture_events))
+    monkeypatch.setattr(up_mod, "_fetch_project_json", lambda pid: _FAKE_PROJECT_JSON)
 
     result = discover_packets()
     assert len(result) == len(fixture_events)
     for ref in result:
         assert isinstance(ref, PacketRef)
         assert ref.url.startswith("https://")
+        assert "zap-api-production.herokuapp.com" in ref.url
         assert ref.ulurp_number
         assert ref.project_thread_id is not None
 
 
-def test_discover_packets_iter_failure_returns_empty(monkeypatch) -> None:
-    """If iter_zap_events raises, discover_packets returns [] without propagating."""
+def test_discover_packets_lr_item_url_selected(monkeypatch) -> None:
+    """The URL in the returned ref points to the LR Item doc, not the signature form."""
     import ingest.sources.nyc.ulurp_packet as up_mod
 
-    monkeypatch.setattr(up_mod, "_httpx", types.ModuleType("httpx"))
+    fixture_events = _load_fixture_events()[:1]
+    monkeypatch.setattr(up_mod, "_iter_zap_events", lambda *a, **k: iter(fixture_events))
+    monkeypatch.setattr(up_mod, "_fetch_project_json", lambda pid: _FAKE_PROJECT_JSON)
 
-    def _boom(*a, **k):
-        raise RuntimeError("boom")
+    result = discover_packets()
+    assert len(result) == 1
+    assert "01ABCDEFLRITEM" in result[0].url
 
-    monkeypatch.setattr(up_mod, "_iter_zap_events", _boom)
+
+def test_discover_packets_no_packages_skipped(monkeypatch) -> None:
+    """Projects with no land-use packages produce no PacketRef."""
+    import ingest.sources.nyc.ulurp_packet as up_mod
+
+    fixture_events = _load_fixture_events()
+    monkeypatch.setattr(up_mod, "_iter_zap_events", lambda *a, **k: iter(fixture_events))
+    no_pkg_json = {"included": [{"type": "milestones", "id": "x", "attributes": {}}]}
+    monkeypatch.setattr(up_mod, "_fetch_project_json", lambda pid: no_pkg_json)
 
     result = discover_packets()
     assert result == []
+
+
+def test_discover_packets_api_failure_skipped(monkeypatch) -> None:
+    """Projects whose API call fails produce no PacketRef (fail-soft)."""
+    import ingest.sources.nyc.ulurp_packet as up_mod
+
+    fixture_events = _load_fixture_events()
+    monkeypatch.setattr(up_mod, "_iter_zap_events", lambda *a, **k: iter(fixture_events))
+    monkeypatch.setattr(up_mod, "_fetch_project_json", lambda pid: {})
+
+    result = discover_packets()
+    assert result == []
+
+
+def test_fetch_raises_without_httpx(monkeypatch) -> None:
+    """fetch() raises ImportError when httpx is not installed."""
+    import ingest.sources.nyc.ulurp_packet as up_mod
+
+    monkeypatch.setattr(up_mod, "_httpx", None)
+
+    try:
+        up_mod.fetch("https://example.com/fake.pdf")
+        raise AssertionError("expected ImportError")
+    except ImportError:
+        pass
