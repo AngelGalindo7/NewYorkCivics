@@ -470,8 +470,17 @@ def gather_live_events(
         except Exception as exc:  # network/API hiccup on a supplementary feed -> skip it
             log.warning("311 enrichment skipped (%s)", exc)
     if include_cb_agenda:
+        from ingest.extract.extractor import LLMUnavailableError as _LLMUnavailable
+
         try:
+            llm_failures = 0
             for agenda_ref in cb_agenda.discover_agendas("MN11"):
+                if llm_failures >= 2:
+                    log.warning(
+                        "cb_agenda: LLM unavailable on 2 consecutive agendas;"
+                        " skipping remaining PDFs this run"
+                    )
+                    break
                 try:
                     pdf_bytes = cb_agenda.fetch(agenda_ref.url)
                 except Exception as exc:
@@ -480,12 +489,21 @@ def gather_live_events(
                 try:
                     doc = pdf_text.extract_text(pdf_bytes)
                     agenda_events = extractor.extract(doc, source_id=cb_agenda.SOURCE_ID)
+                    llm_failures = 0  # reset on successful extraction
                     events += agenda_events
                     log.info(
                         "cb_agenda: extracted %d event(s) from %s (%s)",
                         len(agenda_events),
                         agenda_ref.url,
                         agenda_ref.meeting_date or "date unknown",
+                    )
+                except _LLMUnavailable as exc:
+                    llm_failures += 1
+                    log.warning(
+                        "cb_agenda: LLM unavailable for %s (%s); consecutive failures: %d",
+                        agenda_ref.meeting_date or agenda_ref.url,
+                        exc,
+                        llm_failures,
                     )
                 except Exception as exc:
                     log.warning("cb_agenda parse/extract failed for %s (%s)", agenda_ref.url, exc)
@@ -744,18 +762,16 @@ def gather_events() -> tuple[list[CivicEvent], bool]:
             # Agenda enrichment now uses a public HTML scrape (no token needed) when the
             # event carries a GUID from the web-calendar scraper. Fails soft per event.
             include_agenda_enrichment=True,
-            # CB11 agendas: re-enable when GOOGLE_API_KEY has live Gemini credits.
-            # Without credits every PDF attempt fails 429 and costs ~3s dead time.
-            include_cb_agenda=False,
-            # a836-zap.nyc.gov is an internal NYC server unreachable externally;
-            # every fetch fails DNS and costs ~0.75s — disable until CEQR Access
-            # connector replaces this path.
-            include_ulurp_packet=False,
+            # CB11 agendas: fetch + parse are live; extraction requires GOOGLE_API_KEY with
+            # Gemini quota — fails soft (warns + skips) if quota is exhausted.
+            include_cb_agenda=True,
+            # ZAP Heroku API (zap-api-production.herokuapp.com) is publicly accessible;
+            # discover_packets() queries it per project to find the LR-Item narrative PDF.
+            include_ulurp_packet=True,
             include_dob_now=True,
-            # Permitted events geocodes every Manhattan event to find CD-11 ones — too slow
-            # when few or no events are scheduled nearby. Re-enable when we can pre-filter
-            # the dataset by address prefix or geographic bounding box.
-            include_permitted_events=False,
+            # Permitted events geocodes every Manhattan event to find CD-11 ones; slow
+            # when few events are nearby but fails soft and adds resident-friendly context.
+            include_permitted_events=True,
         )
         if events:
             return events, True
