@@ -26,6 +26,14 @@ logger = logging.getLogger(__name__)
 _PROMPTS_DIR = Path(__file__).parent / "prompts"
 
 
+class LLMUnavailableError(RuntimeError):
+    """LLM API is temporarily overloaded or unavailable (HTTP 503 / UNAVAILABLE).
+
+    Raised instead of being swallowed so callers can circuit-break rather than
+    grinding through a queue of documents while the model is clearly down.
+    """
+
+
 def _load_prompt(name: str = "cb_agenda.v1.md") -> str:
     path = _PROMPTS_DIR / name
     if not path.exists():
@@ -49,6 +57,8 @@ def extract(
 
     try:
         raw = _call_llm(full_prompt)
+    except LLMUnavailableError:
+        raise  # propagate so callers can circuit-break
     except Exception as exc:
         logger.warning("LLM call failed during extraction: %s", exc)
         return []
@@ -74,13 +84,19 @@ def _call_llm(prompt: str) -> str:
         raise ValueError("GOOGLE_API_KEY is not set — add it to .env (see .env.example).")
 
     client = genai.Client(api_key=settings.google_api_key)
-    response = client.models.generate_content(
-        model=settings.extract_model,
-        contents=prompt,
-        config=genai_types.GenerateContentConfig(
-            response_mime_type="application/json",
-        ),
-    )
+    try:
+        response = client.models.generate_content(
+            model=settings.extract_model,
+            contents=prompt,
+            config=genai_types.GenerateContentConfig(
+                response_mime_type="application/json",
+            ),
+        )
+    except Exception as exc:
+        msg = str(exc)
+        if "503" in msg or "UNAVAILABLE" in msg:
+            raise LLMUnavailableError(msg) from exc
+        raise
     if not response.text:
         raise RuntimeError("LLM returned empty response text")
     return response.text
