@@ -789,11 +789,6 @@ def run() -> None:
 
     from ingest.config import get_settings
     from ingest.deliver.review import dump_pending
-    from ingest.observability import enable_llm_observability
-
-    # Turn on Datadog LLM Observability before any model is called (no-op unless
-    # DD_API_KEY + DD_LLMOBS_ENABLED are set); auto-instruments the Gemini extractor.
-    enable_llm_observability()
 
     events, is_live = gather_events()
     subscriber = _get_subscriber()
