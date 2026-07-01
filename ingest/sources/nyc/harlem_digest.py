@@ -554,6 +554,21 @@ def gather_live_events(
     zap_events = [e for e in events if e.source_id == "nyc_zap"]
     events = corroborate.corroborate_against_zap(events, zap_events)
 
+    # When a dirty source (CB agenda, ULURP packet) extracts an event for a ULURP
+    # application that ZAP already has as a structured record, drop the dirty version.
+    # ZAP is the authoritative source for that project and carries a verified City record
+    # link; keeping both duplicates the entry in the digest. Scoped to dirty sources only
+    # so a structured feed carrying the same ULURP number is never silently dropped.
+    _zap_ulurp = {corroborate.normalize_ulurp(e.ulurp_number) for e in zap_events if e.ulurp_number}
+    if _zap_ulurp:
+        events = [
+            ev
+            for ev in events
+            if ev.source_id not in corroborate.DIRTY_SOURCE_IDS
+            or not ev.ulurp_number
+            or corroborate.normalize_ulurp(ev.ulurp_number) not in _zap_ulurp
+        ]
+
     # Only surface major-work permits (new building or major alteration).  Sidewalk
     # sheds, scaffolding, and minor alterations are routine maintenance — not the
     # signal a civic digest should lead on.
@@ -789,11 +804,6 @@ def run() -> None:
 
     from ingest.config import get_settings
     from ingest.deliver.review import dump_pending
-    from ingest.observability import enable_llm_observability
-
-    # Turn on Datadog LLM Observability before any model is called (no-op unless
-    # DD_API_KEY + DD_LLMOBS_ENABLED are set); auto-instruments the Gemini extractor.
-    enable_llm_observability()
 
     events, is_live = gather_events()
     subscriber = _get_subscriber()

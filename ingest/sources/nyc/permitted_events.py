@@ -182,23 +182,28 @@ def iter_permitted_events(
     community_district: str = TARGET_COMMUNITY_DISTRICT,
     *,
     limit: int | None = None,
+    max_scan: int = 300,
     socrata_token: str | None = None,
 ) -> Iterator[CivicEvent]:
     """Yield upcoming permitted events in the target community district.
 
-    Pulls all Manhattan events from the rolling 30-day forward window and geocodes
-    each address to filter to the target CD.  Geocoding failures are skipped so a
-    single bad address doesn't block the rest.
+    Pulls Manhattan events from the rolling 30-day forward window and geocodes each
+    address to filter to the target CD.  Geocoding failures are skipped so a single
+    bad address doesn't block the rest.
 
     Args:
         community_district: 3-digit CD string to keep (default '111' = Manhattan CD11).
         limit: Optional cap on emitted events (for demos/tests).
+        max_scan: Stop geocoding after this many Manhattan events regardless of how
+            many CD matches have been found.  Prevents multi-thousand-row scans when
+            few or no events are permitted in the target district this week.
         socrata_token: Optional Socrata app token.
     """
     client = Socrata(SOCRATA_DOMAIN, socrata_token, timeout=_TIMEOUT)
     # Filter to Manhattan up-front to bound network and geocoding cost.
     where = "event_borough = 'Manhattan'"
     emitted = 0
+    scanned = 0
     offset = 0
     first_page_empty = True
     try:
@@ -208,9 +213,17 @@ def iter_permitted_events(
                 break
             first_page_empty = False
             for rec in page:
+                if scanned >= max_scan:
+                    log.info(
+                        "permitted_events: max_scan=%d reached with %d matches; stopping early",
+                        max_scan,
+                        emitted,
+                    )
+                    return
                 location = (rec.get("event_location") or "").strip()
                 if not location:
                     continue
+                scanned += 1
                 cd = _geosearch_cd(location)
                 if cd != community_district:
                     continue
@@ -234,6 +247,7 @@ def discover_permitted_events(
     community_district: str = TARGET_COMMUNITY_DISTRICT,
     *,
     limit: int = 10,
+    max_scan: int = 300,
     socrata_token: str | None = None,
 ) -> list[CivicEvent]:
     """Return a bounded list of upcoming permitted events for the target CD."""
@@ -241,4 +255,8 @@ def discover_permitted_events(
 
     settings = get_settings()
     token = socrata_token or settings.socrata_app_token
-    return list(iter_permitted_events(community_district, limit=limit, socrata_token=token))
+    return list(
+        iter_permitted_events(
+            community_district, limit=limit, max_scan=max_scan, socrata_token=token
+        )
+    )

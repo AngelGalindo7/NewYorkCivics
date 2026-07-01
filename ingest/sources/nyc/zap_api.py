@@ -218,6 +218,59 @@ def _action_type_from_ulurp(ulurp_first: str | None, lead_action: str) -> str:
     return "land_use_application"
 
 
+# Trailing suffixes stripped from project_name to recover a street address.
+# These mirror the action keywords above and appear verbatim at the end of most ZAP names.
+_ADDRESS_STRIP_SUFFIXES: tuple[str, ...] = (
+    " rezoning",
+    " special permit",
+    " variance",
+    " authorization",
+    " certification",
+    " urban renewal",
+    " environmental review",
+    " site selection",
+    " udaap",
+    " zoning text amendment",
+    " zoning map amendment",
+)
+
+
+def _address_from_project_name(project_name: str) -> str | None:
+    """Strip the trailing action-type word(s) from project_name to recover a street address.
+
+    E.g. "58-62 East 125th Street Rezoning" → "58-62 East 125th Street".
+    Returns None if no known suffix is found (can't reliably guess the split point).
+    """
+    lower = project_name.lower()
+    for suffix in _ADDRESS_STRIP_SUFFIXES:
+        if lower.endswith(suffix):
+            return project_name[: len(project_name) - len(suffix)].rstrip(" -—,")
+    return None
+
+
+def _ulurp_milestone_stage(milestone: str) -> tuple[str, bool]:
+    """Map a ZAP current_milestone string to (plain-English stage label, is_cb_stage).
+
+    is_cb_stage is True when the project is in the Community Board review window —
+    the 60-day clock in which CB11 holds a public hearing and residents can testify.
+    """
+    m = milestone.lower()
+    if not m:
+        return ("", False)
+    if "community board" in m or " cb " in m or m.startswith("cb ") or m.startswith("cb-"):
+        return ("Community Board Review", True)
+    if "borough president" in m:
+        return ("Borough President Review", False)
+    if "city planning commission" in m or " cpc " in m:
+        return ("City Planning Commission Review", False)
+    if "city council" in m:
+        return ("City Council Review", False)
+    # ZAP milestone codes like "ZM - Review Filed Land Use Application"
+    if m.startswith("zm ") or m.startswith("zr ") or "review filed" in m or "dcp" in m:
+        return ("DCP Filing Review", False)
+    return ("Under Review", False)
+
+
 # --------------------------------------------------------------------------- #
 # Record -> CivicEvent mapper                                                  #
 # --------------------------------------------------------------------------- #
@@ -242,12 +295,20 @@ def _zap_project_to_event(rec: Mapping[str, Any], bbl_value: str | None = None) 
     # Confirmed real fields per ADR 0007; aliases for dataset evolution.
     ulurp_raw = str(rec.get("ulurp_numbers") or rec.get("ulurp_number") or "").strip()
     project_brief = str(rec.get("project_brief") or rec.get("description") or "").strip()
+    project_name = str(rec.get("project_name") or "").strip()
     public_status = str(rec.get("public_status") or "").strip()
     applicant = str(rec.get("applicant_name") or rec.get("applicant") or "").strip()
     lead_action = str(rec.get("lead_action") or "").strip()
     community_district = str(rec.get("community_district") or "").strip()
     borough = str(rec.get("borough") or "").strip()
+    current_milestone = str(rec.get("current_milestone") or "").strip()
+    current_milestone_date = str(rec.get("current_milestone_date") or "").strip()
+
     address = _address(rec.get("primary_address") or rec.get("address"))
+    # When the structured address fields are absent, attempt to recover the street
+    # address by stripping the action-type suffix from project_name.
+    if not address and project_name:
+        address = _address_from_project_name(project_name)
 
     # Dates: ZAP uses ISO 8601 strings.
     event_date = _parse_iso(rec.get("certified_referred") or rec.get("certified_date"))
@@ -257,32 +318,57 @@ def _zap_project_to_event(rec: Mapping[str, Any], bbl_value: str | None = None) 
     )
     deadline = _parse_iso(str(hearing_raw) if hearing_raw is not None else None)
 
-    # When a project is at the CPC stage with no explicit hearing date, approximate
-    # the outer bound of the 60-day CPC review window from the certified_referred date.
-    # harlem_digest._link_zap_to_legistar overrides this with a confirmed Legistar
-    # hearing date if one is found.
+    milestone_stage, is_cb_stage = _ulurp_milestone_stage(current_milestone)
+
+    # Deadline precedence: explicit hearing_date → CB-stage 60-day window →
+    # CPC-stage 60-day approximation (harlem_digest._link_zap_to_legistar may
+    # later replace the approximation with a confirmed Legistar hearing date).
     cpc_stage: str | None = None
-    if public_status == "In Public Review" and event_date is not None and deadline is None:
-        deadline = event_date + timedelta(days=60)
-        cpc_stage = "cpc_review"
+    if deadline is None:
+        if is_cb_stage and event_date is not None:
+            # CB has 60 days from DCP certification to hold a public hearing.
+            deadline = event_date + timedelta(days=60)
+        elif public_status == "In Public Review" and event_date is not None:
+            deadline = event_date + timedelta(days=60)
+            cpc_stage = "cpc_review"
 
     ulurp_first = _first_ulurp(ulurp_raw)
 
-    # Title: lead action + first ULURP + current public status.
-    title_parts: list[str] = [lead_action or "Land-use application"]
-    if ulurp_first:
-        title_parts.append(f"({ulurp_first})")
-    if public_status:
-        title_parts.append(f"— {public_status}")
-    title = " ".join(title_parts)
+    # Title: prefer project_name (human-readable, e.g. "58-62 East 125th Street Rezoning")
+    # over the mechanical lead_action/ULURP/status concatenation.
+    if project_name:
+        title = project_name
+    else:
+        title_parts: list[str] = [lead_action or "Land-use application"]
+        if ulurp_first:
+            title_parts.append(f"({ulurp_first})")
+        if public_status:
+            title_parts.append(f"— {public_status}")
+        title = " ".join(title_parts)
 
-    # Summary: project_brief is the resident-facing content; key facts appended.
+    # Summary: project_brief first, then process-stage context so residents know
+    # when they can act and where to follow up.
     summary_parts: list[str] = [project_brief or f"ZAP project {project_id}."]
     if applicant:
         summary_parts.append(f"Applicant: {applicant}.")
-    if public_status:
+    if current_milestone:
+        if is_cb_stage:
+            summary_parts.append(
+                "CB11 now has 60 days to hold a public hearing — check manhattancb11.org"
+                " for the hearing date and how to sign up to testify."
+            )
+        else:
+            milestone_since = (
+                f" (since {current_milestone_date[:10]})" if current_milestone_date else ""
+            )
+            summary_parts.append(
+                f"DCP is reviewing the application{milestone_since}."
+                " The CB11 public hearing is scheduled after DCP certifies it —"
+                " check manhattancb11.org once certified."
+            )
+    elif public_status:
         summary_parts.append(f"Status: {public_status}.")
-    # Only append the application number to the summary if it's not already in the title.
+    # Only append the application number if it is not already in the title.
     if ulurp_raw and ulurp_raw not in title:
         summary_parts.append(f"Land-use review application number: {ulurp_raw}.")
     summary = " ".join(summary_parts)
@@ -322,6 +408,9 @@ def _zap_project_to_event(rec: Mapping[str, Any], bbl_value: str | None = None) 
             "certified_referred": rec.get("certified_referred"),
             "hearing_date": hearing_raw,
             "cpc_stage": cpc_stage,
+            "current_milestone": current_milestone or None,
+            "current_milestone_date": current_milestone_date or None,
+            "milestone_stage": milestone_stage or None,
         },
         extracted_at=now,
     )

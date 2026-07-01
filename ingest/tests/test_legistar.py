@@ -609,10 +609,6 @@ def test_scrape_meeting_agenda_parses_matter_names():
         def get(self, url, **kw):
             return _FakeResp()
 
-    monkeypatched = _leg._scrape_meeting_agenda.__wrapped__ if hasattr(
-        _leg._scrape_meeting_agenda, "__wrapped__"
-    ) else None
-
     import unittest.mock as mock
 
     with mock.patch("ingest.sources.nyc.legistar.httpx") as mock_httpx:
@@ -627,8 +623,9 @@ def test_scrape_meeting_agenda_parses_matter_names():
 
 def test_scrape_meeting_agenda_returns_empty_when_no_rows():
     pytest.importorskip("bs4")
-    import ingest.sources.nyc.legistar as _leg
     import unittest.mock as mock
+
+    import ingest.sources.nyc.legistar as _leg
 
     class _EmptyResp:
         text = "<html><body><table></table></body></html>"

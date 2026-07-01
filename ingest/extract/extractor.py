@@ -6,6 +6,8 @@ validated CivicEvent objects by calling the configured EXTRACT_MODEL.
 Rules honored:
 - Rule 1 (LLM only on dirty inputs): fires on ParsedDoc only, never on clean JSON feeds.
 - Rule 2 (Fail fast, don't guess): LLM / parse failures -> empty list; callers quarantine.
+  One deliberate exception: a temporary model outage (HTTP 503 / UNAVAILABLE) raises
+  LLMUnavailableError so callers can circuit-break instead of draining their queue.
 - Rule 3 (Quote the source): every extracted field must carry a provenance entry.
 - Rule 6 (model behind config): reads EXTRACT_MODEL from config, never hard-coded.
 """
@@ -26,6 +28,14 @@ logger = logging.getLogger(__name__)
 _PROMPTS_DIR = Path(__file__).parent / "prompts"
 
 
+class LLMUnavailableError(RuntimeError):
+    """LLM API is temporarily overloaded or unavailable (HTTP 503 / UNAVAILABLE).
+
+    Raised instead of being swallowed so callers can circuit-break rather than
+    grinding through a queue of documents while the model is clearly down.
+    """
+
+
 def _load_prompt(name: str = "cb_agenda.v1.md") -> str:
     path = _PROMPTS_DIR / name
     if not path.exists():
@@ -41,14 +51,18 @@ def extract(
 ) -> list[CivicEvent]:
     """Extract CivicEvent objects from a ParsedDoc using EXTRACT_MODEL.
 
-    Returns an empty list on any LLM or parsing failure — callers quarantine the
-    source record (Rule 2). Never raises on model or parsing failures.
+    Returns an empty list on LLM or parsing failures — callers quarantine the source
+    record (Rule 2) — with one exception: :class:`LLMUnavailableError` (temporary model
+    outage, HTTP 503 / UNAVAILABLE) propagates so callers can circuit-break rather than
+    grind through a queue of documents while the model is down.
     """
     prompt_template = _load_prompt(prompt_name)
     full_prompt = f"{prompt_template}\n\n---\n\n## Agenda content\n\n{doc.text}"
 
     try:
         raw = _call_llm(full_prompt)
+    except LLMUnavailableError:
+        raise  # propagate so callers can circuit-break
     except Exception as exc:
         logger.warning("LLM call failed during extraction: %s", exc)
         return []
@@ -74,13 +88,19 @@ def _call_llm(prompt: str) -> str:
         raise ValueError("GOOGLE_API_KEY is not set — add it to .env (see .env.example).")
 
     client = genai.Client(api_key=settings.google_api_key)
-    response = client.models.generate_content(
-        model=settings.extract_model,
-        contents=prompt,
-        config=genai_types.GenerateContentConfig(
-            response_mime_type="application/json",
-        ),
-    )
+    try:
+        response = client.models.generate_content(
+            model=settings.extract_model,
+            contents=prompt,
+            config=genai_types.GenerateContentConfig(
+                response_mime_type="application/json",
+            ),
+        )
+    except Exception as exc:
+        msg = str(exc)
+        if "503" in msg or "UNAVAILABLE" in msg:
+            raise LLMUnavailableError(msg) from exc
+        raise
     if not response.text:
         raise RuntimeError("LLM returned empty response text")
     return response.text

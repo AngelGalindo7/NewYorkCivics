@@ -20,10 +20,12 @@ from __future__ import annotations
 from ingest.extract.schemas import CivicEvent, RecordStatus
 
 # Dirty-source identifiers whose extracted fields should be checked against ZAP.
-_DIRTY_SOURCE_IDS = {"nyc_ulurp_packet", "nyc_cb_mn11"}
+# Public: the digest runner also uses this to scope its ZAP-authoritative dedup so a
+# structured source carrying a ULURP number can never be silently dropped.
+DIRTY_SOURCE_IDS = frozenset({"nyc_ulurp_packet", "nyc_cb_mn11"})
 
 
-def _normalize_ulurp(num: str) -> str:
+def normalize_ulurp(num: str) -> str:
     """Strip spaces and uppercase for case/whitespace-insensitive comparison."""
     return num.replace(" ", "").upper()
 
@@ -63,7 +65,7 @@ def corroborate_against_zap(
 
     result: list[CivicEvent] = []
     for event in events:
-        if event.source_id not in _DIRTY_SOURCE_IDS or event.project_thread_id is None:
+        if event.source_id not in DIRTY_SOURCE_IDS or event.project_thread_id is None:
             result.append(event)
             continue
 
@@ -80,7 +82,7 @@ def corroborate_against_zap(
         if (
             dirty_num is not None
             and zap_num is not None
-            and _normalize_ulurp(dirty_num) != _normalize_ulurp(zap_num)
+            and normalize_ulurp(dirty_num) != normalize_ulurp(zap_num)
         ):
             # Conflict: keep at REVIEW with a note for the human reviewer.
             discrepancy = f"extracted ULURP '{dirty_num}' differs from ZAP record '{zap_num}'"

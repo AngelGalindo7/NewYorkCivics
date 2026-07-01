@@ -300,3 +300,28 @@ def test_iter_skips_blank_location_without_raising(monkeypatch):
 
     events = list(permitted_events.iter_permitted_events("111"))
     assert events == []
+
+
+def test_iter_stops_at_max_scan(monkeypatch):
+    # max_scan bounds the geocoding loop: with 10 candidate events and max_scan=4,
+    # exactly 4 addresses are geocoded and iteration stops with no matches.
+    from ingest.sources.nyc import permitted_events
+
+    records = [
+        {**_ITER_SAMPLE_REC, "event_id": f"EVT-ITER-{i:03d}", "event_location": f"{i} Main St"}
+        for i in range(10)
+    ]
+    geocoded: list[str] = []
+
+    def _count_geocode(addr):
+        geocoded.append(addr)
+        return "999"  # never the target CD
+
+    # raising=False: Socrata may not exist in the namespace when sodapy is absent.
+    monkeypatch.setattr(permitted_events, "Socrata", _FakeSocrata, raising=False)
+    monkeypatch.setattr(permitted_events, "_get_page", _make_fake_get_page(records))
+    monkeypatch.setattr(permitted_events, "_geosearch_cd", _count_geocode)
+
+    events = list(permitted_events.iter_permitted_events("111", max_scan=4))
+    assert events == []
+    assert len(geocoded) == 4
