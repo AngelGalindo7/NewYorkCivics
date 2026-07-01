@@ -502,9 +502,7 @@ def _scrape_meeting_agenda(event_id: int, guid: str) -> list[str]:
         resp.raise_for_status()
     soup = BeautifulSoup(resp.text, "html.parser")
     matters: list[str] = []
-    for row in soup.find_all(
-        "tr", id=re.compile(r"ctl00_ContentPlaceHolder1_gridMain_ctl00__\d+")
-    ):
+    for row in soup.find_all("tr", id=re.compile(r"ctl00_ContentPlaceHolder1_gridMain_ctl00__\d+")):
         cells = row.find_all("td", recursive=False)
         if len(cells) > 5:
             name = cells[5].get_text(" ", strip=True)
