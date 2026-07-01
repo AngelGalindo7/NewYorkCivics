@@ -183,22 +183,36 @@ def offline_base(monkeypatch):
     monkeypatch.setattr(harlem_digest, "iter_feed", lambda *a, **k: iter(next(feeds)))
     monkeypatch.setattr(harlem_digest, "iter_zap_events", lambda *a, **k: iter([zap]))
     monkeypatch.setattr(harlem_digest, "discover_cd_hearings", lambda *a, **k: [])
+    monkeypatch.setattr(harlem_digest, "find_matter_by_ulurp", lambda ulurp: None)
     return zap
 
 
 def test_corroborate_wired_into_gather_live_events(monkeypatch, offline_base):
-    """End-to-end: a dirty ULURP-packet event with matching thread/ULURP exits as ACCEPTED."""
+    """End-to-end wiring of the dirty-vs-ZAP reconciliation inside gather_live_events.
+
+    Two dirty ULURP-packet extractions, same project thread as the seeded ZAP record:
+    one repeats the ULURP number ZAP already covers (a duplicate digest entry — dropped;
+    ZAP is authoritative and carries the verified City record link), one carries no
+    ULURP number (survives, upgraded to ACCEPTED because the ZAP thread corroborates it).
+    """
     packet_ref = PacketRef(
         ulurp_number="C 240042 ZMM",
         url="https://a836-zap.nyc.gov/document/ulurp/C240042ZMM",
         project_thread_id="zap:P2024M0042",
         title="ULURP packet C 240042 ZMM",
     )
-    dirty = CivicEvent(
+    duplicate_of_zap = CivicEvent(
         source_id="nyc_ulurp_packet",
         source_record_id="nyc_ulurp_packet-item-0000",
         project_thread_id="zap:P2024M0042",
         ulurp_number="C 240042 ZMM",
+        status=RecordStatus.REVIEW,
+    )
+    detail_without_number = CivicEvent(
+        source_id="nyc_ulurp_packet",
+        source_record_id="nyc_ulurp_packet-item-0001",
+        project_thread_id="zap:P2024M0042",
+        ulurp_number=None,
         status=RecordStatus.REVIEW,
     )
 
@@ -209,10 +223,15 @@ def test_corroborate_wired_into_gather_live_events(monkeypatch, offline_base):
     monkeypatch.setattr(
         harlem_digest.pdf_text, "extract_text", lambda b: ParsedDoc(text="packet text")
     )
-    monkeypatch.setattr(harlem_digest.extractor, "extract", lambda doc, *, source_id: [dirty])
+    monkeypatch.setattr(
+        harlem_digest.extractor,
+        "extract",
+        lambda doc, *, source_id: [duplicate_of_zap, detail_without_number],
+    )
 
     events = harlem_digest.gather_live_events(include_ulurp_packet=True)
 
     packet_events = [e for e in events if e.source_id == "nyc_ulurp_packet"]
     assert len(packet_events) == 1
+    assert packet_events[0].source_record_id == "nyc_ulurp_packet-item-0001"
     assert packet_events[0].status == RecordStatus.ACCEPTED

@@ -554,6 +554,20 @@ def gather_live_events(
     zap_events = [e for e in events if e.source_id == "nyc_zap"]
     events = corroborate.corroborate_against_zap(events, zap_events)
 
+    # When a dirty source (CB agenda, ULURP packet) extracts an event for a ULURP
+    # application that ZAP already has as a structured record, drop the dirty version.
+    # ZAP is the authoritative source for that project and carries a verified City record
+    # link; keeping both duplicates the entry in the digest.
+    _zap_ulurp = {e.ulurp_number.replace(" ", "").upper() for e in zap_events if e.ulurp_number}
+    if _zap_ulurp:
+        events = [
+            ev
+            for ev in events
+            if ev.source_id == "nyc_zap"
+            or not ev.ulurp_number
+            or ev.ulurp_number.replace(" ", "").upper() not in _zap_ulurp
+        ]
+
     # Only surface major-work permits (new building or major alteration).  Sidewalk
     # sheds, scaffolding, and minor alterations are routine maintenance — not the
     # signal a civic digest should lead on.
