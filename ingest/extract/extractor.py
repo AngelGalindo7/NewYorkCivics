@@ -6,6 +6,8 @@ validated CivicEvent objects by calling the configured EXTRACT_MODEL.
 Rules honored:
 - Rule 1 (LLM only on dirty inputs): fires on ParsedDoc only, never on clean JSON feeds.
 - Rule 2 (Fail fast, don't guess): LLM / parse failures -> empty list; callers quarantine.
+  One deliberate exception: a temporary model outage (HTTP 503 / UNAVAILABLE) raises
+  LLMUnavailableError so callers can circuit-break instead of draining their queue.
 - Rule 3 (Quote the source): every extracted field must carry a provenance entry.
 - Rule 6 (model behind config): reads EXTRACT_MODEL from config, never hard-coded.
 """
@@ -49,8 +51,10 @@ def extract(
 ) -> list[CivicEvent]:
     """Extract CivicEvent objects from a ParsedDoc using EXTRACT_MODEL.
 
-    Returns an empty list on any LLM or parsing failure — callers quarantine the
-    source record (Rule 2). Never raises on model or parsing failures.
+    Returns an empty list on LLM or parsing failures — callers quarantine the source
+    record (Rule 2) — with one exception: :class:`LLMUnavailableError` (temporary model
+    outage, HTTP 503 / UNAVAILABLE) propagates so callers can circuit-break rather than
+    grind through a queue of documents while the model is down.
     """
     prompt_template = _load_prompt(prompt_name)
     full_prompt = f"{prompt_template}\n\n---\n\n## Agenda content\n\n{doc.text}"
