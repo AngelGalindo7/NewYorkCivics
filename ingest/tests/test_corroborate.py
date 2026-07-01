@@ -235,3 +235,19 @@ def test_corroborate_wired_into_gather_live_events(monkeypatch, offline_base):
     assert len(packet_events) == 1
     assert packet_events[0].source_record_id == "nyc_ulurp_packet-item-0001"
     assert packet_events[0].status == RecordStatus.ACCEPTED
+
+
+def test_structured_source_with_matching_ulurp_survives_dedup(monkeypatch, offline_base):
+    """The ZAP-authoritative dedup is scoped to dirty sources: a structured feed
+    (e.g. Legistar) carrying the same ULURP number must never be dropped."""
+    legistar_event = CivicEvent(
+        source_id="nyc_legistar",
+        source_record_id="matter:9999",
+        project_thread_id="legistar:matter:9999",
+        ulurp_number="C 240042 ZMM",
+    )
+    monkeypatch.setattr(harlem_digest, "discover_cd_hearings", lambda *a, **k: [legistar_event])
+
+    events = harlem_digest.gather_live_events()
+
+    assert any(e.source_id == "nyc_legistar" for e in events)
