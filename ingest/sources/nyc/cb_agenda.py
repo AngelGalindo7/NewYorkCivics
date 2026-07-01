@@ -67,7 +67,9 @@ _AT_PAGE_LOAD_RE = re.compile(r'"x-airtable-page-load-id":"([^"]+)"')
 _AT_ATTACH_RE = re.compile(r"[^(]+\.pdf\s+\((https://[^)]+)\)", re.IGNORECASE)
 
 # Days back from today to include when discovering agendas.
-_LOOKBACK_DAYS = 90
+# 21 days keeps the PDF count small (roughly 5-8 meetings) while covering the
+# full three-week window that's actionable for a resident this week.
+_LOOKBACK_DAYS = 21
 
 
 @dataclass(frozen=True)
