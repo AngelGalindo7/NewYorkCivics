@@ -95,7 +95,12 @@ def test_summary_names_the_law_grade_and_score(grade_event):
     s = grade_event.summary
     assert "Local Law 33" in s
     assert "grade of F" in s
-    assert "123 East 116 Street" in s  # address title-cased
+    # The summary says "this building" — the digest groups the record under a building
+    # header, and one tax lot can span several street addresses, so repeating the
+    # dataset's own address here can contradict the header. The address still travels
+    # on the event's address field (asserted separately).
+    assert "for this building" in s
+    assert grade_event.address == "123 East 116 Street"
     assert "12/100" in s  # ENERGY STAR score surfaced
 
 
