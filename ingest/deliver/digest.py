@@ -19,7 +19,9 @@ Rules honored here:
             is in the top-N. A wrong extraction never auto-publishes as fact.
   - Rule 10 (Confidence routing): every item is tagged verified vs needs-verification
             and the render visibly separates them with a footnote — the biggest
-            trust lever. A needs-verification item never leads the email.
+            trust lever. A needs-verification item may appear in the lead only when it
+            carries a still-open dated window, always visibly tagged and sorted after
+            verified items; the human-review send gate still covers it.
   - Rule 8  (linear ranker): rank.score() breaks ties, but the digest orders for
             ACTIONABILITY first (soonest still-open deadlines lead).
   - Rule 3  (quote the source) + citations: each item renders its source links so a
@@ -273,17 +275,22 @@ def _to_item(event: CivicEvent, band: str, asof: date) -> dict[str, Any]:
 
 
 def _is_actionable(item: dict[str, Any]) -> bool:
-    """Lead-section gate: a still-open date AND a confirmed (verified) item.
+    """Lead-section gate: a still-open date the reader can act on.
 
-    A needs-verification item is never promoted to the lead — an unconfirmed
-    correlation must not read as a headline fact. It still appears in its building
-    thread below, flagged.
+    A needs-verification item with an open dated window is admitted — burying the only
+    real comment deadlines of the week is worse than showing them flagged — but it is
+    always visibly tagged, sorts after every verified item (see _lead_key), and the
+    human-review send gate still covers it. An undated unverified correlation never
+    leads, and a correlation-type item ("displacement_signal") never leads even when
+    dated — that claim requires human validation before it can headline.
 
     Procedural council/committee hearings with no specific building or address are
     citywide meetings — they belong in the Near you feed as area context, not in the
     actionable lead over genuinely local items.
     """
-    if item["actionable_date"] is None or item["needs_verification"]:
+    if item["actionable_date"] is None:
+        return False
+    if item.get("action_type") == "displacement_signal":
         return False
     return not (
         item.get("action_type") in ("council_hearing", "land_use_hearing")
@@ -324,8 +331,8 @@ def _actionability_key(item: dict[str, Any]) -> tuple:
 
 
 def _lead_key(item: dict[str, Any]) -> tuple:
-    """Sort key for the lead section: soonest still-open date first, then rank."""
-    return (item["actionable_date"] or date.max, -item["score"])
+    """Lead sort: every verified item before any flagged one, then soonest date, then rank."""
+    return (item["needs_verification"], item["actionable_date"] or date.max, -item["score"])
 
 
 def _building_key(item: dict[str, Any]) -> str:
@@ -335,6 +342,52 @@ def _building_key(item: dict[str, Any]) -> str:
     if item["address"]:
         return f"addr:{item['address'].lower()}"
     return f"item:{item['title']}"  # ungroupable -> stands alone
+
+
+def _count_title(title: str, n: int) -> str:
+    """Count-aware phrasing for ``n`` identical records sharing one title.
+
+    "Immediately hazardous violation (Class C) — HPD" with n=2 becomes
+    "2 immediately hazardous violations (Class C) — HPD". Only the canonical taxonomy
+    nouns are pluralized; an unrecognized title gets an explicit "(n records)" suffix
+    rather than a guessed plural.
+    """
+    for singular in (" violation", " complaint", " permit"):
+        if singular in title:
+            worded = title.replace(singular, singular + "s", 1)
+            return f"{n} {worded[0].lower() + worded[1:]}"
+    return f"{title} ({n} records)"
+
+
+def _collapse_repeats(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Merge items sharing (action_type, title) into one render-ready entry.
+
+    N identical violations on one building read as one block instead of N copies of the
+    same boilerplate. The first (most actionable, list is pre-sorted) item is the base:
+    its summary and dates stand; every constituent's Verify citations are preserved in
+    order; needs_verification is sticky (any flagged constituent flags the merged item).
+    Constituent identities live in extras["collapsed_ids"] so the renderer's
+    shown-suppression can treat the merged item correctly; counts in
+    extras["collapsed_count"].
+    """
+    merged: dict[tuple[Any, Any], dict[str, Any]] = {}
+    out: list[dict[str, Any]] = []
+    for it in items:
+        key = (it.get("action_type"), it.get("title"))
+        base = merged.get(key)
+        if base is None:
+            base = dict(it)
+            base["extras"] = dict(it.get("extras") or {})
+            merged[key] = base
+            out.append(base)
+            continue
+        ids = base["extras"].setdefault("collapsed_ids", [base.get("source_record_id")])
+        ids.append(it.get("source_record_id"))
+        base["extras"]["collapsed_count"] = len(ids)
+        base["citations"] = base["citations"] + it["citations"]
+        base["needs_verification"] = base["needs_verification"] or it["needs_verification"]
+        base["title"] = _count_title(it["title"], len(ids))
+    return out
 
 
 def _group_buildings(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -350,6 +403,7 @@ def _group_buildings(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     out = list(groups.values())
     for g in out:
         g["items"].sort(key=_actionability_key)
+        g["items"] = _collapse_repeats(g["items"])
         # Prefer a real street address for the header: a reader can't place "BBL 1016170120".
         # Any record on the building may carry the address, so scan the whole group rather
         # than only the lead item; _to_item uses a "BBL ..." string as its own address
@@ -364,6 +418,21 @@ def _group_buildings(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
             None,
         )
         g["label"] = address or (f"BBL {first['bbl']}" if first["bbl"] else first["title"])
+        # One tax lot can span several street addresses; when a grouped item's own
+        # address differs from the header the renderer prints a same-lot clarifier so
+        # the mismatch doesn't read like a data error.
+        for it in g["items"]:
+            addr = it.get("address")
+            if (
+                it.get("bbl")
+                and addr
+                and g["label"]
+                and not addr.startswith("BBL ")
+                and not g["label"].startswith("BBL ")
+                and addr.lower() != g["label"].lower()
+            ):
+                it["same_lot_address"] = addr
+                it["group_label"] = g["label"]
     out.sort(key=lambda g: _actionability_key(g["items"][0]))
     return out
 
@@ -384,7 +453,9 @@ def _stats_line(all_items: list[dict[str, Any]], lead: list[dict[str, Any]]) -> 
     # own clause without a neighbourhood distance prefix.
     permits = sum(1 for it in all_items if it["action_type"] == "permit")
     violations = sum(1 for it in all_items if it["action_type"] == "violation")
-    speakable = sum(1 for it in lead if _is_speakable(it["action_type"]))
+    speakable = sum(
+        1 for it in lead if _is_speakable(it["action_type"]) and not it["needs_verification"]
+    )
 
     parts: list[str] = []
     nearby_clauses: list[str] = []
@@ -488,12 +559,16 @@ def build_digest(
     # Confirmed hazardous violations lead the whole digest regardless of proximity band —
     # a Class C violation anywhere in the neighbourhood is consequential. The section is
     # labelled by severity ("confirmed hazards"), not by distance, so all bands qualify.
-    at_risk_building_keys = [
-        building["key"]
+    # A building carrying BOTH a new permit and a confirmed hazard is the strongest
+    # cross-source story in the digest, so those pairings outrank single-fact hazards.
+    _at_risk_flagged = [
+        (building["key"], any(it["action_type"] == "permit" for it in building["items"]))
         for section in sections
         for building in section["buildings"]
         if any(_is_hazardous_violation(it) for it in building["items"])
     ]
+    _at_risk_flagged.sort(key=lambda pair: not pair[1])
+    at_risk_building_keys = [key for key, _ in _at_risk_flagged]
 
     # "Act on this": only items with a still-open action window, soonest first. The
     # same item may also appear in its building thread below for context — the digest
@@ -558,9 +633,15 @@ def build_digest(
     _exact = ("exact_record", "exact_building")
     exact_verifiable = sum(1 for it in all_items if it["verifies"] in _exact)
     linked_count = sum(1 for it in all_items if it["citations"])
-    subject = f"Your neighborhood this week: {n} update{'s' if n != 1 else ''}" + (
-        f" ({attn} need{'s' if attn == 1 else ''} attention)" if attn else ""
-    )
+    # The subject states the verification split plainly ("linked to City records" vs
+    # "read from public documents") — never a vague "need attention" that overstates
+    # what an unverified extraction demands of the reader.
+    unlinked = n - linked_count
+    subject = f"Your neighborhood this week: {n} update{'s' if n != 1 else ''}"
+    if unlinked:
+        subject += (
+            f" — {linked_count} linked to City records, {unlinked} read from public documents"
+        )
 
     return {
         "subject": subject,
@@ -592,26 +673,45 @@ def _corroboration_note(items: list[dict[str, Any]]) -> str | None:
 
     Lets a reader see the reliability signal at a glance: a permit filed on a building that
     already has active violations or resident complaints is a stronger story than either alone.
-    Returns None when the building does not have both a permit and a violation/complaint.
+    Strictly factual co-presentation — the two records side by side, no risk language or
+    prediction. Counts respect collapsed items (extras["collapsed_count"]), so three merged
+    violations still read as three. Returns None when the building does not have both a
+    permit and a violation/complaint.
     """
+
+    def _records(it: dict[str, Any]) -> int:
+        return int((it.get("extras") or {}).get("collapsed_count") or 1)
+
     has_permit = any(it["action_type"] == "permit" for it in items)
     if not has_permit:
         return None
-    violation_count = sum(1 for it in items if it["action_type"] == "violation")
-    complaint_count = sum(1 for it in items if it["action_type"] == "habitability_complaints")
+    violation_count = sum(_records(it) for it in items if it["action_type"] == "violation")
+    complaint_count = sum(
+        _records(it) for it in items if it["action_type"] == "habitability_complaints"
+    )
     if violation_count == 0 and complaint_count == 0:
         return None
-    n = violation_count + complaint_count
     if violation_count > 0 and complaint_count == 0:
-        kind = f"{n} active violation{'s' if n != 1 else ''}"
+        kind = f"{violation_count} active violation{'s' if violation_count != 1 else ''}"
     elif complaint_count > 0 and violation_count == 0:
-        kind = f"{n} active complaint{'s' if n != 1 else ''}"
+        kind = f"{complaint_count} active complaint{'s' if complaint_count != 1 else ''}"
     else:
         kind = (
             f"{violation_count} active violation{'s' if violation_count != 1 else ''}"
             f" and {complaint_count} complaint{'s' if complaint_count != 1 else ''}"
         )
-    return f"This building received a new permit and has {kind}."
+    return f"A new permit was issued at a building that already has {kind}."
+
+
+def _item_ids(item: dict[str, Any]) -> list[Any]:
+    """Every source_record_id an item stands for (collapsed items carry several)."""
+    ids = (item.get("extras") or {}).get("collapsed_ids")
+    return list(ids) if ids else [item.get("source_record_id")]
+
+
+def _already_shown(item: dict[str, Any], shown: set) -> bool:
+    """True when every record this item stands for has already rendered above."""
+    return all(i in shown for i in _item_ids(item))
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -642,6 +742,12 @@ def _render_item(
     out.append(f"**{_e(item['title'])}**{tag}")
     if item["summary"]:
         out.append(_e(item["summary"]))
+    # One tax lot can span several street addresses — say so rather than reading like a bug.
+    if item.get("same_lot_address"):
+        out.append(
+            f"- _City records list this lot's address as {item['same_lot_address']} — "
+            f"the same building lot as {item.get('group_label') or 'the address above'}._"
+        )
     # Plain-English "why this matters to you" line — connects the item to the reader's life.
     if _ctx.why_matters and (why := _ctx.why_matters.get(item.get("action_type") or "")):
         out.append(f"- **Why this matters:** {why}")
@@ -656,6 +762,10 @@ def _render_item(
         out.append(f"- **How to respond:** {contact}")
     if item["deadline_note"]:
         out.append(f"- **Action deadline:** {item['deadline_note']}")
+    # A date another source reported but no City record confirms — flagged, never silently
+    # merged into the deadline field.
+    if note := (item.get("extras") or {}).get("unverified_date_note"):
+        out.append(f"- _{note}_")
     # Sources, strongest proof first, on one line so it reads like a citation. An item with
     # no source link says so plainly — it must never read as a confirmed City record.
     if item["citations"]:
@@ -702,13 +812,22 @@ def _render_lead_item(
     """One compact entry in the 'Act on this' lead: title, when, and the verify line."""
     _e = expand or (lambda t: t)
     _ctx = ctx or _RenderCtx()
-    out.append(f"**{_e(item['title'])}**")
+    tag = " **[needs verification]**" if item["needs_verification"] else ""
+    out.append(f"**{_e(item['title'])}**{tag}")
     when = item["actionable_date"]
     if when is not None:
         out.append(f"- **When:** {_when_phrase(when, asof)} ({when.isoformat()})")
+    if note := (item.get("extras") or {}).get("unverified_date_note"):
+        out.append(f"- _{note}_")
     if item["citations"]:
         links = " · ".join(f"[{_citation_label(c)}]({c['url']})" for c in item["citations"])
-        out.append(f"- Verify: {links}")
+        prefix = "Verify" if not item["needs_verification"] else "Check the sources"
+        out.append(f"- {prefix}: {links}")
+    else:
+        out.append(
+            "- _Read from a public document — no City record links this yet; "
+            "confirm before relying on it._"
+        )
     if _ctx.why_matters and (why := _ctx.why_matters.get(item.get("action_type") or "")):
         out.append(f"- **Why this matters:** {why}")
     if _ctx.action_context and (blurb := _ctx.action_context.get(item.get("action_type") or "")):
@@ -828,7 +947,7 @@ def render_markdown(
     # header so a building whose only hazard item leads "Act on this" (a future correct-by
     # deadline) doesn't leave a stray empty section header.
     at_risk_visible = [
-        (building, [it for it in building["items"] if it.get("source_record_id") not in lead_ids])
+        (building, [it for it in building["items"] if not _already_shown(it, lead_ids)])
         for building in at_risk
     ]
     at_risk_visible = [(b, vis) for b, vis in at_risk_visible if vis]
@@ -841,11 +960,11 @@ def render_markdown(
             out.append("")
             note = _corroboration_note(building["items"])
             if note:
-                out.append(note)
+                out.append(f"**{note}**")
                 out.append("")
             for item in visible:
                 _render_item(item, out, expand=_expand, ctx=ctx)
-                at_risk_rendered_ids.add(item.get("source_record_id"))
+                at_risk_rendered_ids.update(_item_ids(item))
 
     # Anything already rendered in a lead section above is suppressed in the feed sections
     # below, so no event is shown twice.
@@ -894,11 +1013,7 @@ def render_markdown(
         (section["label"], building, visible)
         for section in digest["sections"]
         for building in section["buildings"]
-        if (
-            visible := [
-                it for it in building["items"] if it.get("source_record_id") not in shown_ids
-            ]
-        )
+        if (visible := [it for it in building["items"] if not _already_shown(it, shown_ids)])
     ]
     if feed:
         out.append("## Near you")
@@ -918,7 +1033,7 @@ def render_markdown(
             out.append("")
             note = _corroboration_note(building["items"])
             if note:
-                out.append(note)
+                out.append(f"**{note}**")
                 out.append("")
             for item in visible:
                 _render_item(item, out, expand=_expand, ctx=ctx)
@@ -927,7 +1042,7 @@ def render_markdown(
                 # case; permits with a lapsed or future deadline carry an action window
                 # and should still appear in "Deadline passed" / "Later".
                 if item.get("action_type") == "permit" and item.get("deadline") is None:
-                    near_you_rendered_ids.add(item.get("source_record_id") or "")
+                    near_you_rendered_ids.update(_item_ids(item))
 
         # Only permits are suppressed; other action types may still appear in
         # "Happened this week" or "Later" to give context alongside their Near you card.
@@ -935,23 +1050,44 @@ def render_markdown(
 
         remainder = feed[FEED_NEAR_YOU_CAP:]
         if remainder:
-            out.append("### More nearby")
-            out.append(
-                f"_{len(remainder)} more building{'s' if len(remainder) != 1 else ''} nearby with"
-                " activity this week — each links to its City record._"
-            )
-            out.append("")
-            for label, building, visible in remainder:
-                count = f"{len(visible)} update{'s' if len(visible) != 1 else ''}"
-                bldg_label = building["label"]
-                # When the building resolved to a bare BBL (no address in source data),
-                # use the lead item's title so the reader sees what the entry is about.
-                lead_title = visible[0].get("title", "") if bldg_label.startswith("BBL ") else ""
-                link = _first_link(visible)
-                suffix = f" · {link}" if link else ""
-                display = lead_title or bldg_label
-                out.append(f"- **{display}** ({label}) — {count}{suffix}")
-            out.append("")
+            # Entries keyed "item:" have no building identity (no BBL, no address) —
+            # usually area-wide filings. Rendering them as if they were building names
+            # misleads, so they get their own compact list below the building rows.
+            building_rows = [r for r in remainder if not r[1]["key"].startswith("item:")]
+            titled_rows = [r for r in remainder if r[1]["key"].startswith("item:")]
+            if building_rows:
+                out.append("### More nearby")
+                out.append(
+                    f"_{len(building_rows)} more"
+                    f" building{'s' if len(building_rows) != 1 else ''} nearby with"
+                    " activity this week — each links to its City record._"
+                )
+                out.append("")
+                for label, building, visible in building_rows:
+                    count = f"{len(visible)} update{'s' if len(visible) != 1 else ''}"
+                    bldg_label = building["label"]
+                    # When the building resolved to a bare BBL (no address in source data),
+                    # use the lead item's title so the reader sees what the entry is about.
+                    lead_title = (
+                        visible[0].get("title", "") if bldg_label.startswith("BBL ") else ""
+                    )
+                    link = _first_link(visible)
+                    suffix = f" · {link}" if link else ""
+                    display = lead_title or bldg_label
+                    out.append(f"- **{display}** ({label}) — {count}{suffix}")
+                out.append("")
+            if titled_rows:
+                out.append(
+                    f"_Also in review nearby — {len(titled_rows)}"
+                    f" area-wide filing{'s' if len(titled_rows) != 1 else ''}"
+                    " not tied to a single building:_"
+                )
+                out.append("")
+                for _label, building, visible in titled_rows:
+                    title = visible[0].get("title") or building["label"]
+                    link = _first_link(visible)
+                    out.append(f"- **{title}**" + (f" — {link}" if link else ""))
+                out.append("")
 
     # "Later": items with a still-open action window more than LEAD_MAX_DAYS out —
     # they matter but aren't urgent enough to headline this week's digest. Suppress any
