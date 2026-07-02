@@ -552,22 +552,14 @@ def gather_live_events(
         except Exception as exc:
             log.warning("permitted events feed skipped (%s)", exc)
     zap_events = [e for e in events if e.source_id == "nyc_zap"]
+    # Reconcile dirty extractions against the authoritative ZAP records in three passes:
+    # thread ULURP-less land-use extractions onto ZAP projects by street address
+    # (conservative, exactly-one-candidate), corroborate identifiers, then drop dirty
+    # duplicates of ZAP records — first transferring any hearing/comment date only the
+    # dirty event carried onto the ZAP event as a flagged unverified-date note.
+    events = corroborate.thread_dirty_by_address(events, zap_events)
     events = corroborate.corroborate_against_zap(events, zap_events)
-
-    # When a dirty source (CB agenda, ULURP packet) extracts an event for a ULURP
-    # application that ZAP already has as a structured record, drop the dirty version.
-    # ZAP is the authoritative source for that project and carries a verified City record
-    # link; keeping both duplicates the entry in the digest. Scoped to dirty sources only
-    # so a structured feed carrying the same ULURP number is never silently dropped.
-    _zap_ulurp = {corroborate.normalize_ulurp(e.ulurp_number) for e in zap_events if e.ulurp_number}
-    if _zap_ulurp:
-        events = [
-            ev
-            for ev in events
-            if ev.source_id not in corroborate.DIRTY_SOURCE_IDS
-            or not ev.ulurp_number
-            or corroborate.normalize_ulurp(ev.ulurp_number) not in _zap_ulurp
-        ]
+    events = corroborate.dedup_dirty_against_zap(events)
 
     # Only surface major-work permits (new building or major alteration).  Sidewalk
     # sheds, scaffolding, and minor alterations are routine maintenance — not the

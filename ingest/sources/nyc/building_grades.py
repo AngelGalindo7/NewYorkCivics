@@ -130,9 +130,12 @@ def _energy_grade_to_event(rec: Mapping[str, Any]) -> CivicEvent:
     addr = (rec.get("address") or "").strip().title() or None
     star = rec.get("energy_star_score")
 
+    # "this building" rather than the dataset's own address string: one tax lot can span
+    # several street addresses, and the digest groups this record under the building
+    # header — repeating a different address here would read like a data error.
     summary = (
         f"The City posted a Local Law 33 energy-efficiency grade of {grade} for "
-        f"{addr or 'this building'}: {_grade_meaning(grade)}."
+        f"this building: {_grade_meaning(grade)}."
     )
     if star not in (None, "", "0"):
         summary += f" Its ENERGY STAR score is {star}/100."

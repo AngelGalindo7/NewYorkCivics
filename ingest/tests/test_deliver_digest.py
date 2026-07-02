@@ -477,31 +477,46 @@ def _review_event_with_future_deadline(asof=ASOF):
     )
 
 
-def test_needs_verification_item_with_future_date_is_kept_out_of_lead():
-    # Guards the confidence-routing lever independently of the no-date path: an item
-    # that is needs-verification AND has a future actionable date must NOT lead, even
-    # though its date alone would qualify it. Deleting the verification clause from
-    # _is_actionable must fail here.
+def test_needs_verification_item_with_future_date_leads_flagged_after_verified():
+    # A flagged item with a real open window is admitted to the lead — burying the only
+    # actionable deadlines of the week is worse than showing them tagged — but every
+    # verified item sorts first, the tag renders in the lead, and the review gate
+    # still blocks the send.
     from ingest.deliver.digest import _is_actionable, _to_item
 
     item = _to_item(_review_event_with_future_deadline(), BAND_ON_YOUR_BLOCK, ASOF)
-    # Date guard alone is satisfied — so this isolates the verification guard.
     assert item["actionable_date"] is not None
     assert item["needs_verification"] is True
-    assert _is_actionable(item) is False
+    assert _is_actionable(item) is True
 
-    # End-to-end: it is excluded from the lead but still threaded into its building.
-    matched = match_subscriber(SAMPLE_SUBSCRIBER, [_review_event_with_future_deadline()])
+    flagged = _review_event_with_future_deadline()  # deadline ASOF+10
+    verified_later = _accepted_hearing("VER-LATER", "Verified hearing", ASOF + timedelta(days=20))
+    matched = match_subscriber(SAMPLE_SUBSCRIBER, [flagged, verified_later])
     digest = build_digest(SAMPLE_SUBSCRIBER, matched, asof=ASOF)
+
     lead_titles = [it["title"] for it in digest["lead_items"]]
-    assert not any("unconfirmed" in t.lower() for t in lead_titles)
-    threaded = [
-        it["title"]
-        for section in digest["sections"]
-        for building in section["buildings"]
-        for it in building["items"]
-    ]
-    assert any("unconfirmed" in t.lower() for t in threaded)
+    # The verified item leads even though its date is later than the flagged one's.
+    assert lead_titles == ["Verified hearing", "Tentative rezoning hearing (unconfirmed)"]
+    assert digest["review_required"] is True
+
+    body = render_markdown(digest)
+    act_section = body.split("## Act on this", 1)[1]
+    assert "Tentative rezoning hearing (unconfirmed)** **[needs verification]**" in act_section
+
+
+def test_displacement_signal_never_leads_even_with_future_date():
+    # A correlation-type item must not headline even when it carries an open window —
+    # that claim requires human validation before it can lead.
+    from ingest.deliver.digest import _is_actionable
+
+    item = {
+        "actionable_date": ASOF + timedelta(days=5),
+        "needs_verification": False,
+        "action_type": "displacement_signal",
+        "bbl": "1000000001",
+        "address": "1 SIGNAL ST",
+    }
+    assert _is_actionable(item) is False
 
 
 def test_speakable_stat_counts_a_hearing_in_the_lead():
@@ -692,15 +707,8 @@ def test_pure_past_event_is_dropped():
 
 
 def test_happened_this_week_section():
-    # An event from 3 days ago with no deadline is a pure past event — but it was
-    # filtered in as "Happened this week" only if the filter logic keeps it.
-    # Actually per A2: pure past events (event_date < asof, deadline=None) ARE dropped
-    # from all_items. The "Happened this week" subsection draws from the surviving
-    # all_items (those with lapsed deadlines or no event_date). A past permit WITH a
-    # lapsed deadline falls in "Deadline passed", not "Happened this week", because its
-    # deadline condition triggers the overdue filter first.
-    # What actually goes to "Happened this week": items with a lapsed deadline AND
-    # event_date within the last 7 days (they survive the filter because deadline is not None).
+    # A recent event with a lapsed deadline renders exactly ONCE — as its full feed card
+    # (summary, citations, overdue note) — not again as a "Happened this week" stub.
     recent_with_deadline = _accepted_event(
         "RECENT-DL-1",
         "Recent application with closed window",
@@ -711,7 +719,9 @@ def test_happened_this_week_section():
     digest = build_digest(SAMPLE_SUBSCRIBER, matched, asof=ASOF)
     assert len(digest["recent_items"]) == 1
     body = render_markdown(digest)
-    assert "Happened this week" in body
+    assert body.count("Recent application with closed window") == 1
+    assert "## Near you" in body
+    assert "Happened this week" not in body  # already shown in full; no stub repeat
 
 
 def test_hearing_guidance_appended_for_liquor_item():
@@ -959,8 +969,9 @@ def test_lead_item_not_duplicated_in_near_you():
 
 
 def test_far_future_item_goes_to_later_not_lead():
-    # An item with an open action window more than 60 days out must move to "Later"
-    # rather than cluttering the urgent "Act on this" lead.
+    # An item with an open action window more than 60 days out must stay out of the
+    # urgent "Act on this" lead. It renders exactly once — its full feed card carries
+    # the deadline note — with no duplicate "Later" stub.
     far = _accepted_event(
         "FAR-1",
         "Far-future zoning hearing",
@@ -977,21 +988,23 @@ def test_far_future_item_goes_to_later_not_lead():
     assert "Far-future zoning hearing" in later_titles
 
     body = render_markdown(digest)
-    assert "### Later" in body
-    later_section = body.split("### Later")[1]
-    assert "Far-future zoning hearing" in later_section
+    assert body.count("Far-future zoning hearing") == 1
+    assert "## Near you" in body
+    assert "### Later" not in body  # already shown in full; no stub repeat
 
 
 def test_deadline_passed_section_appears_and_lead_excludes_overdue():
     # An ACCEPTED event with a recently lapsed deadline must NOT appear in "Act on this"
-    # (actionable_date is None for lapsed deadlines) but MUST appear in "Deadline passed".
+    # (actionable_date is None for lapsed deadlines). It renders once — as its feed card,
+    # which carries the "overdue" note — and the "Deadline passed" section only catches
+    # lapsed items that did not render in full above.
     overdue = _accepted_event(
         "OVERDUE-1",
         "Recently expired permit application",
         event_date=ASOF - timedelta(days=10),
         deadline=ASOF - timedelta(days=5),
     )
-    # A very old lapsed deadline (beyond 90-day lookback) must NOT appear in the section.
+    # A very old lapsed deadline (beyond 90-day lookback) must NOT appear anywhere.
     ancient = _accepted_event(
         "ANCIENT-1",
         "Old expired application",
@@ -1009,8 +1022,9 @@ def test_deadline_passed_section_appears_and_lead_excludes_overdue():
     assert "Old expired application" not in overdue_titles
 
     body = render_markdown(digest)
-    assert "## Deadline passed" in body
-    assert "Recently expired permit application" in body.split("## Deadline passed")[1]
+    assert body.count("Recently expired permit application") == 1
+    assert "days overdue" in body  # the feed card carries the lapsed-deadline note
+    assert "## Deadline passed" not in body  # already shown in full; no stub repeat
     assert "Act on this" not in body  # no open action windows -> no lead section
 
 
@@ -1389,3 +1403,230 @@ def test_deadline_passed_items_have_no_contact_line():
     action_contacts = {"special_permit": "Call 311 to comment."}
     md = render_markdown(digest, action_contacts=action_contacts)
     assert "How to respond" not in md
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Building-story collapse, same-lot clarifier, honest subject, area-wide filings
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+def test_repeated_violations_collapse_to_one_block():
+    # Two identical Class C violations on one building render as ONE block with a
+    # count-aware title and BOTH Verify links — while the stats line and item counts
+    # keep counting two records.
+    events = [
+        _violation("HAZ-A", "1000000030", hazardous=True, addr="30 HAZARD ST"),
+        _violation("HAZ-B", "1000000030", hazardous=True, addr="30 HAZARD ST"),
+    ]
+    digest = build_digest(SAMPLE_SUBSCRIBER, {BAND_ON_YOUR_BLOCK: events}, asof=ASOF)
+
+    assert digest["item_count"] == 2  # records, not rendered blocks
+    assert "2 hazardous violations" in (digest["stats_line"] or "")
+
+    group_items = _all_items(digest)
+    assert len(group_items) == 1
+    merged = group_items[0]
+    assert merged["extras"]["collapsed_count"] == 2
+    assert set(merged["extras"]["collapsed_ids"]) == {"HAZ-A", "HAZ-B"}
+    assert len(merged["citations"]) == 2
+
+    body = render_markdown(digest)
+    assert "2 housing-maintenance violations" in body
+    assert body.count("HPD cited 30 HAZARD ST.") == 1  # boilerplate once, not twice
+    assert "https://x/HAZ-A" in body and "https://x/HAZ-B" in body
+
+
+def test_count_title_fallback_for_unrecognized_noun():
+    from ingest.deliver.digest import _count_title
+
+    assert (
+        _count_title("Immediately hazardous violation (Class C) — HPD", 2)
+        == "2 immediately hazardous violations (Class C) — HPD"
+    )
+    assert _count_title("Building energy grade D (Local Law 33)", 3) == (
+        "Building energy grade D (Local Law 33) (3 records)"
+    )
+
+
+def test_corroboration_note_counts_collapsed_records():
+    from ingest.deliver.digest import _corroboration_note
+
+    permit_item = {"action_type": "permit", "extras": {}}
+    merged_violations = {"action_type": "violation", "extras": {"collapsed_count": 3}}
+    note = _corroboration_note([permit_item, merged_violations])
+    assert note is not None
+    assert "3 active violations" in note
+    assert note.startswith("A new permit was issued at a building that already has")
+
+
+def test_compound_permit_and_hazard_building_sorts_first():
+    # Two hazardous buildings; the one that ALSO has a new permit is the strongest
+    # cross-source story and must lead the hazards section, with the pairing bolded.
+    hazard_only = _violation("HAZ-ONLY", "1000000041", hazardous=True, addr="41 SOLO ST")
+    hazard_compound = _violation("HAZ-COMP", "1000000042", hazardous=True, addr="42 PAIR ST")
+    recent_permit = _accepted_event(
+        "PERM-COMP",
+        "Major alteration permit",
+        event_date=ASOF - timedelta(days=2),  # recent -> survives the past-event filter
+    )
+    permit_on_compound = recent_permit.model_copy(
+        update={"bbl": "1000000042", "address": "42 PAIR ST"}
+    )
+    digest = build_digest(
+        SAMPLE_SUBSCRIBER,
+        {BAND_ON_YOUR_BLOCK: [hazard_only, hazard_compound, permit_on_compound]},
+        asof=ASOF,
+    )
+    assert digest["at_risk_building_keys"][0] == "bbl:1000000042"
+
+    body = render_markdown(digest)
+    hazards = body.split("## Confirmed hazards in your neighborhood", 1)[1]
+    assert "**A new permit was issued at a building that already has 1 active violation.**" in (
+        hazards
+    )
+    # No risk language — facts only.
+    assert "at risk" not in body.lower()
+
+
+def test_same_lot_clarifier_renders_when_addresses_differ():
+    # One BBL, two street addresses (a real NYC case): the item grouped under the other
+    # address must say so instead of reading like a data error.
+    a = _violation("LOT-A", "1000000050", hazardous=True, addr="2253 THIRD AVENUE")
+    b = _violation("LOT-B", "1000000050", hazardous=False, addr="2243 THIRD AVENUE")
+    b = b.model_copy(update={"title": "Housing-maintenance record"})
+    digest = build_digest(SAMPLE_SUBSCRIBER, {BAND_ON_YOUR_BLOCK: [a, b]}, asof=ASOF)
+    body = render_markdown(digest)
+    assert "City records list this lot's address as 2243 THIRD AVENUE" in body
+    assert "same building lot as 2253 THIRD AVENUE" in body
+
+
+def test_unverified_date_note_renders_in_feed_and_lead():
+    from ingest.extract.schemas import Citation, CivicEvent, RecordStatus
+
+    note = "Another public document lists 2026-07-14 as a hearing date — confirm first."
+    ev = CivicEvent(
+        source_id="test_src",
+        source_record_id="NOTE-1",
+        bbl=str(SAMPLE_SUBSCRIBER["bbl"]),
+        action_type="rezoning",
+        title="Rezoning with contributed date",
+        summary="A rezoning application.",
+        address=str(SAMPLE_SUBSCRIBER["address"]),
+        deadline=ASOF + timedelta(days=12),
+        confidence=1.0,
+        status=RecordStatus.ACCEPTED,
+        extras={"unverified_date_note": note},
+        citations=[
+            Citation(kind="data_source", verifies="exact_record", label="r", url="https://x/NOTE-1")
+        ],
+    )
+    matched = match_subscriber(SAMPLE_SUBSCRIBER, [ev])
+    digest = build_digest(SAMPLE_SUBSCRIBER, matched, asof=ASOF)
+    body = render_markdown(digest)
+    # The item leads (future deadline), and the note renders flagged in the lead entry.
+    assert any(it["source_record_id"] == "NOTE-1" for it in digest["lead_items"])
+    assert f"- _{note}_" in body
+
+
+def test_subject_reports_linked_vs_document_split():
+    linked = _violation("SUBJ-L", "1000000061", hazardous=True, addr="61 LINKED ST")
+    unlinked = _ai_item_no_citation("SUBJ-U", "1000000062", addr="62 DOC ST")
+    digest = build_digest(SAMPLE_SUBSCRIBER, {BAND_ON_YOUR_BLOCK: [linked, unlinked]}, asof=ASOF)
+    assert digest["subject"] == (
+        "Your neighborhood this week: 2 updates — "
+        "1 linked to City records, 1 read from public documents"
+    )
+    # All-linked week: the split clause (and the old "need attention" phrasing) is gone.
+    digest_all = build_digest(SAMPLE_SUBSCRIBER, {BAND_ON_YOUR_BLOCK: [linked]}, asof=ASOF)
+    assert digest_all["subject"] == "Your neighborhood this week: 1 update"
+    assert "attention" not in digest_all["subject"]
+
+
+def test_more_nearby_separates_area_wide_filings_from_buildings():
+    from ingest.deliver.digest import FEED_NEAR_YOU_CAP
+    from ingest.extract.schemas import Citation, CivicEvent, RecordStatus
+
+    def _bldg(i: int) -> CivicEvent:
+        # A lapsed deadline keeps the item out of the lead but sorts its building ahead
+        # of the date-less area filing, pushing the filing into the remainder list.
+        return _violation(f"NB{i}", f"100001{i:04d}", hazardous=False, addr=f"{i} FEED ST")
+
+    area_filing = CivicEvent(
+        source_id="test_src",
+        source_record_id="AREA-1",
+        bbl=None,
+        action_type="urban_renewal",
+        title="Amendments to the Area Urban Renewal Plan",
+        summary="Area-wide plan amendment.",
+        address=None,
+        confidence=1.0,
+        status=RecordStatus.ACCEPTED,
+        citations=[
+            Citation(kind="data_source", verifies="exact_record", label="r", url="https://x/AREA-1")
+        ],
+    )
+    events = [_bldg(i) for i in range(FEED_NEAR_YOU_CAP + 1)] + [area_filing]
+    digest = build_digest(SAMPLE_SUBSCRIBER, {BAND_ON_YOUR_BLOCK: events}, asof=ASOF)
+    body = render_markdown(digest)
+
+    assert "_Also in review nearby — 1 area-wide filing not tied to a single building:_" in body
+    assert "- **Amendments to the Area Urban Renewal Plan** — " in body
+    # It must NOT render in the building-list shape.
+    assert "**Amendments to the Area Urban Renewal Plan** (On your block)" not in body
+
+
+def test_flagged_event_date_only_stays_out_of_lead():
+    # A needs-verification item whose only date is a future event_date (a street fair
+    # read from an agenda PDF) is not an action window — it must not flood "Act on
+    # this". Only an explicit deadline earns a flagged item lead placement.
+    from ingest.extract.schemas import CivicEvent, RecordStatus
+
+    fair = CivicEvent(
+        source_id="test_src",
+        source_record_id="FAIR-1",
+        bbl=str(SAMPLE_SUBSCRIBER["bbl"]),
+        action_type="street_event",
+        title="Summer Block Party",
+        summary="A motion to approve the block party permit was passed.",
+        address=str(SAMPLE_SUBSCRIBER["address"]),
+        event_date=ASOF + timedelta(days=9),
+        confidence=0.5,
+        status=RecordStatus.REVIEW,
+        citations=[],
+    )
+    matched = match_subscriber(SAMPLE_SUBSCRIBER, [fair])
+    digest = build_digest(SAMPLE_SUBSCRIBER, matched, asof=ASOF)
+    assert digest["lead_items"] == []
+    body = render_markdown(digest)
+    assert "Summer Block Party" in body  # still in the feed, flagged
+    assert "[needs verification]" in body
+
+
+def test_bbl_less_event_sharing_address_folds_into_building_group():
+    # An event without a BBL but with the same street address as a BBL-keyed group is
+    # the same building — one address must never render as two entries.
+    with_bbl = _violation("FOLD-A", "1000000070", hazardous=True, addr="70 FOLD ST")
+    from ingest.extract.schemas import Citation, CivicEvent, RecordStatus
+
+    without_bbl = CivicEvent(
+        source_id="test_src",
+        source_record_id="FOLD-B",
+        bbl=None,
+        action_type="land_use_application",
+        title="Enlargement application at 70 FOLD ST",
+        summary="An application concerning the same building.",
+        address="70 FOLD ST",
+        confidence=1.0,
+        status=RecordStatus.ACCEPTED,
+        citations=[
+            Citation(kind="data_source", verifies="exact_record", label="r", url="https://x/FOLD-B")
+        ],
+    )
+    digest = build_digest(
+        SAMPLE_SUBSCRIBER, {BAND_ON_YOUR_BLOCK: [with_bbl, without_bbl]}, asof=ASOF
+    )
+    all_groups = [b for s in digest["sections"] for b in s["buildings"]]
+    assert len(all_groups) == 1
+    assert {it["source_record_id"] for it in all_groups[0]["items"]} == {"FOLD-A", "FOLD-B"}
+    body = render_markdown(digest)
+    assert body.count("#### 70 FOLD ST") == 1
