@@ -277,12 +277,14 @@ def _to_item(event: CivicEvent, band: str, asof: date) -> dict[str, Any]:
 def _is_actionable(item: dict[str, Any]) -> bool:
     """Lead-section gate: a still-open date the reader can act on.
 
-    A needs-verification item with an open dated window is admitted — burying the only
-    real comment deadlines of the week is worse than showing them flagged — but it is
-    always visibly tagged, sorts after every verified item (see _lead_key), and the
-    human-review send gate still covers it. An undated unverified correlation never
-    leads, and a correlation-type item ("displacement_signal") never leads even when
-    dated — that claim requires human validation before it can headline.
+    A needs-verification item is admitted only when it carries an explicit still-open
+    DEADLINE — burying the week's only real comment windows is worse than showing them
+    flagged — and it is always visibly tagged, sorts after every verified item (see
+    _lead_key), and the human-review send gate still covers it. A flagged item with
+    just a future event_date (a street fair read from an agenda) is not an action
+    window and stays in the feed. A correlation-type item ("displacement_signal")
+    never leads even when dated — that claim requires human validation before it can
+    headline.
 
     Procedural council/committee hearings with no specific building or address are
     citywide meetings — they belong in the Near you feed as area context, not in the
@@ -291,6 +293,8 @@ def _is_actionable(item: dict[str, Any]) -> bool:
     if item["actionable_date"] is None:
         return False
     if item.get("action_type") == "displacement_signal":
+        return False
+    if item["needs_verification"] and item["deadline"] is None:
         return False
     return not (
         item.get("action_type") in ("council_hearing", "land_use_hearing")
@@ -400,6 +404,21 @@ def _group_buildings(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
             # (round-trip-safe) instead of duplicating its item dicts in the digest.
             groups[key] = {"key": key, "label": None, "items": []}
         groups[key]["items"].append(it)
+    # An event without a BBL that shares its exact street address with a BBL-keyed group
+    # is the same building — fold it in so one address never renders as two entries.
+    bbl_group_by_addr: dict[str, str] = {}
+    for key, g in groups.items():
+        if not key.startswith("bbl:"):
+            continue
+        for it in g["items"]:
+            addr = (it.get("address") or "").lower()
+            if addr and not addr.startswith("bbl "):
+                bbl_group_by_addr.setdefault(addr, key)
+    for key in [k for k in groups if k.startswith("addr:")]:
+        target = bbl_group_by_addr.get(key[len("addr:") :])
+        if target:
+            groups[target]["items"].extend(groups[key]["items"])
+            del groups[key]
     out = list(groups.values())
     for g in out:
         g["items"].sort(key=_actionability_key)
@@ -977,31 +996,6 @@ def render_markdown(
         for item in lead:
             _render_lead_item(item, asof, out, expand=_expand, ctx=ctx)
 
-    # "Deadline passed": recently lapsed items — listed so the reader knows what
-    # closed, without implying an open action window. An item already shown in a lead
-    # section above (e.g. an overdue hazardous violation that led "Right next to you") is
-    # skipped here so it is never shown twice.
-    overdue = [
-        it
-        for it in (digest.get("overdue_items") or [])
-        if it.get("source_record_id") not in shown_ids
-    ]
-    if overdue:
-        out.append("## Deadline passed")
-        out.append(
-            "_The comment window for these items closed recently — they are listed so you know._"
-        )
-        out.append("")
-        for item in overdue:
-            # action_contacts omitted — a contact prompt for a closed deadline would
-            # mislead the reader into thinking action is still possible.
-            _render_item(
-                item,
-                out,
-                expand=_expand,
-                ctx=dataclasses.replace(ctx, action_contacts=None),
-            )
-
     # "Near you": the proximity-banded, building-threaded feed. Items already shown in the
     # "Act on this" lead or the "Right next to you" section are skipped here to avoid showing
     # the same event twice; a building whose every item already appeared above is omitted.
@@ -1037,15 +1031,11 @@ def render_markdown(
                 out.append("")
             for item in visible:
                 _render_item(item, out, expand=_expand, ctx=ctx)
-                # Real permits have no deadline — "Near you" and "Happened this week"
-                # would otherwise show the same card twice.  Only suppress the no-deadline
-                # case; permits with a lapsed or future deadline carry an action window
-                # and should still appear in "Deadline passed" / "Later".
-                if item.get("action_type") == "permit" and item.get("deadline") is None:
-                    near_you_rendered_ids.update(_item_ids(item))
+                # The feed card is the item's richest rendering (summary, context,
+                # citations) — a "Later"/"Happened this week" stub repeating its title
+                # and date adds nothing, so anything shown here renders nowhere else.
+                near_you_rendered_ids.update(_item_ids(item))
 
-        # Only permits are suppressed; other action types may still appear in
-        # "Happened this week" or "Later" to give context alongside their Near you card.
         shown_ids = shown_ids | near_you_rendered_ids
 
         remainder = feed[FEED_NEAR_YOU_CAP:]
@@ -1088,6 +1078,30 @@ def render_markdown(
                     link = _first_link(visible)
                     out.append(f"- **{title}**" + (f" — {link}" if link else ""))
                 out.append("")
+
+    # "Deadline passed": recently lapsed items not already shown above — a full feed card
+    # (which carries its own "N days overdue" note) beats a stub, so this section only
+    # catches lapsed items whose building did not render in full (e.g. beyond the feed cap).
+    overdue = [
+        it
+        for it in (digest.get("overdue_items") or [])
+        if it.get("source_record_id") not in shown_ids
+    ]
+    if overdue:
+        out.append("## Deadline passed")
+        out.append(
+            "_The comment window for these items closed recently — they are listed so you know._"
+        )
+        out.append("")
+        for item in overdue:
+            # action_contacts omitted — a contact prompt for a closed deadline would
+            # mislead the reader into thinking action is still possible.
+            _render_item(
+                item,
+                out,
+                expand=_expand,
+                ctx=dataclasses.replace(ctx, action_contacts=None),
+            )
 
     # "Later": items with a still-open action window more than LEAD_MAX_DAYS out —
     # they matter but aren't urgent enough to headline this week's digest. Suppress any

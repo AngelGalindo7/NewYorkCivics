@@ -707,15 +707,8 @@ def test_pure_past_event_is_dropped():
 
 
 def test_happened_this_week_section():
-    # An event from 3 days ago with no deadline is a pure past event — but it was
-    # filtered in as "Happened this week" only if the filter logic keeps it.
-    # Actually per A2: pure past events (event_date < asof, deadline=None) ARE dropped
-    # from all_items. The "Happened this week" subsection draws from the surviving
-    # all_items (those with lapsed deadlines or no event_date). A past permit WITH a
-    # lapsed deadline falls in "Deadline passed", not "Happened this week", because its
-    # deadline condition triggers the overdue filter first.
-    # What actually goes to "Happened this week": items with a lapsed deadline AND
-    # event_date within the last 7 days (they survive the filter because deadline is not None).
+    # A recent event with a lapsed deadline renders exactly ONCE — as its full feed card
+    # (summary, citations, overdue note) — not again as a "Happened this week" stub.
     recent_with_deadline = _accepted_event(
         "RECENT-DL-1",
         "Recent application with closed window",
@@ -726,7 +719,9 @@ def test_happened_this_week_section():
     digest = build_digest(SAMPLE_SUBSCRIBER, matched, asof=ASOF)
     assert len(digest["recent_items"]) == 1
     body = render_markdown(digest)
-    assert "Happened this week" in body
+    assert body.count("Recent application with closed window") == 1
+    assert "## Near you" in body
+    assert "Happened this week" not in body  # already shown in full; no stub repeat
 
 
 def test_hearing_guidance_appended_for_liquor_item():
@@ -974,8 +969,9 @@ def test_lead_item_not_duplicated_in_near_you():
 
 
 def test_far_future_item_goes_to_later_not_lead():
-    # An item with an open action window more than 60 days out must move to "Later"
-    # rather than cluttering the urgent "Act on this" lead.
+    # An item with an open action window more than 60 days out must stay out of the
+    # urgent "Act on this" lead. It renders exactly once — its full feed card carries
+    # the deadline note — with no duplicate "Later" stub.
     far = _accepted_event(
         "FAR-1",
         "Far-future zoning hearing",
@@ -992,21 +988,23 @@ def test_far_future_item_goes_to_later_not_lead():
     assert "Far-future zoning hearing" in later_titles
 
     body = render_markdown(digest)
-    assert "### Later" in body
-    later_section = body.split("### Later")[1]
-    assert "Far-future zoning hearing" in later_section
+    assert body.count("Far-future zoning hearing") == 1
+    assert "## Near you" in body
+    assert "### Later" not in body  # already shown in full; no stub repeat
 
 
 def test_deadline_passed_section_appears_and_lead_excludes_overdue():
     # An ACCEPTED event with a recently lapsed deadline must NOT appear in "Act on this"
-    # (actionable_date is None for lapsed deadlines) but MUST appear in "Deadline passed".
+    # (actionable_date is None for lapsed deadlines). It renders once — as its feed card,
+    # which carries the "overdue" note — and the "Deadline passed" section only catches
+    # lapsed items that did not render in full above.
     overdue = _accepted_event(
         "OVERDUE-1",
         "Recently expired permit application",
         event_date=ASOF - timedelta(days=10),
         deadline=ASOF - timedelta(days=5),
     )
-    # A very old lapsed deadline (beyond 90-day lookback) must NOT appear in the section.
+    # A very old lapsed deadline (beyond 90-day lookback) must NOT appear anywhere.
     ancient = _accepted_event(
         "ANCIENT-1",
         "Old expired application",
@@ -1024,8 +1022,9 @@ def test_deadline_passed_section_appears_and_lead_excludes_overdue():
     assert "Old expired application" not in overdue_titles
 
     body = render_markdown(digest)
-    assert "## Deadline passed" in body
-    assert "Recently expired permit application" in body.split("## Deadline passed")[1]
+    assert body.count("Recently expired permit application") == 1
+    assert "days overdue" in body  # the feed card carries the lapsed-deadline note
+    assert "## Deadline passed" not in body  # already shown in full; no stub repeat
     assert "Act on this" not in body  # no open action windows -> no lead section
 
 
@@ -1574,3 +1573,60 @@ def test_more_nearby_separates_area_wide_filings_from_buildings():
     assert "- **Amendments to the Area Urban Renewal Plan** — " in body
     # It must NOT render in the building-list shape.
     assert "**Amendments to the Area Urban Renewal Plan** (On your block)" not in body
+
+
+def test_flagged_event_date_only_stays_out_of_lead():
+    # A needs-verification item whose only date is a future event_date (a street fair
+    # read from an agenda PDF) is not an action window — it must not flood "Act on
+    # this". Only an explicit deadline earns a flagged item lead placement.
+    from ingest.extract.schemas import CivicEvent, RecordStatus
+
+    fair = CivicEvent(
+        source_id="test_src",
+        source_record_id="FAIR-1",
+        bbl=str(SAMPLE_SUBSCRIBER["bbl"]),
+        action_type="street_event",
+        title="Summer Block Party",
+        summary="A motion to approve the block party permit was passed.",
+        address=str(SAMPLE_SUBSCRIBER["address"]),
+        event_date=ASOF + timedelta(days=9),
+        confidence=0.5,
+        status=RecordStatus.REVIEW,
+        citations=[],
+    )
+    matched = match_subscriber(SAMPLE_SUBSCRIBER, [fair])
+    digest = build_digest(SAMPLE_SUBSCRIBER, matched, asof=ASOF)
+    assert digest["lead_items"] == []
+    body = render_markdown(digest)
+    assert "Summer Block Party" in body  # still in the feed, flagged
+    assert "[needs verification]" in body
+
+
+def test_bbl_less_event_sharing_address_folds_into_building_group():
+    # An event without a BBL but with the same street address as a BBL-keyed group is
+    # the same building — one address must never render as two entries.
+    with_bbl = _violation("FOLD-A", "1000000070", hazardous=True, addr="70 FOLD ST")
+    from ingest.extract.schemas import Citation, CivicEvent, RecordStatus
+
+    without_bbl = CivicEvent(
+        source_id="test_src",
+        source_record_id="FOLD-B",
+        bbl=None,
+        action_type="land_use_application",
+        title="Enlargement application at 70 FOLD ST",
+        summary="An application concerning the same building.",
+        address="70 FOLD ST",
+        confidence=1.0,
+        status=RecordStatus.ACCEPTED,
+        citations=[
+            Citation(kind="data_source", verifies="exact_record", label="r", url="https://x/FOLD-B")
+        ],
+    )
+    digest = build_digest(
+        SAMPLE_SUBSCRIBER, {BAND_ON_YOUR_BLOCK: [with_bbl, without_bbl]}, asof=ASOF
+    )
+    all_groups = [b for s in digest["sections"] for b in s["buildings"]]
+    assert len(all_groups) == 1
+    assert {it["source_record_id"] for it in all_groups[0]["items"]} == {"FOLD-A", "FOLD-B"}
+    body = render_markdown(digest)
+    assert body.count("#### 70 FOLD ST") == 1
